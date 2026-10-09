@@ -96,3 +96,9 @@ def test_usage_row_written(cfg, conn):
 
 def test_route_order_puts_choice_first(cfg):
     assert llm.route_order(cfg, "local") == ["local", "fast", "reasoning"]
+
+
+def test_make_client_uses_system_trust_store(cfg):
+    import truststore
+    c = llm.make_client(cfg.routes["fast"])
+    assert isinstance(c._client._transport._pool._ssl_context, truststore.SSLContext)
