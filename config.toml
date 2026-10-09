@@ -13,7 +13,7 @@ key = "gemini"
 
 [routes.local]
 base_url = "http://localhost:11434/v1"
-model = "qwen3:4b"
+model = "qwen3:4b-instruct"   # non-thinking build; plain qwen3:4b thinks ~30 s before answering
 key = ""
 
 [routing]

@@ -108,6 +108,8 @@ class VoiceLoop:
     # -------- models
     def load(self) -> None:
         _add_cuda_dlls()
+        import onnxruntime
+        onnxruntime.set_default_logger_severity(3)  # errors only; CUDA graph notices are noise
         from faster_whisper import WhisperModel
         from kokoro_onnx import Kokoro
         from openwakeword.model import Model
