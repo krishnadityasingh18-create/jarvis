@@ -1,0 +1,14 @@
+pip-system-certs
+fastapi
+uvicorn[standard]
+openai
+faster-whisper
+openwakeword
+kokoro-onnx
+soundfile
+sounddevice
+numpy
+keyboard
+keyring
+pytest
+httpx

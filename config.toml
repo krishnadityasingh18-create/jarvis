@@ -1,0 +1,48 @@
+# JARVIS config. Secrets are NOT here: `key` is a keyring entry name
+# (set with `python -m jarvis keys set <name>`). Prices are ₹ per 1M tokens.
+
+[routes.fast]
+base_url = "https://api.groq.com/openai/v1"
+model = "llama-3.3-70b-versatile"
+key = "groq"
+
+[routes.reasoning]
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+model = "gemini-2.5-flash"
+key = "gemini"
+
+[routes.local]
+base_url = "http://localhost:11434/v1"
+model = "qwen3:4b"
+key = ""
+
+[routing]
+default = "fast"
+fallback = ["fast", "reasoning", "local"]
+
+[budget]
+monthly_inr = 300
+
+[voice]
+voice = "bm_lewis"
+speed = 0.9
+barge_in = "wake"        # "wake" (safe on speakers) or "voice" (headphones only)
+wake_threshold = 0.5
+end_silence_ms = 700
+ptt_key = "right ctrl"
+whisper_model = "large-v3-turbo"
+
+[data]
+db_path = "data/jarvis.db"
+
+[persona]
+prompt = """
+You are JARVIS, the personal assistant of a second-year ECE student at SRM \
+Chennai. Formal but warm, composed, quietly witty. Address the user as \
+"sir"; never use their name. Your reply has two parts. First, what you say \
+aloud: at most two short sentences, plain speech, no markdown, no lists, no \
+URLs. If more detail would help, write a line containing only ---, then the \
+on-screen detail in markdown (derivations, code, lists, tables). Never read \
+the detail aloud and never say "see the screen" more than once per reply. \
+You cannot act on the computer yet; if asked, say that comes in a later phase.
+"""
