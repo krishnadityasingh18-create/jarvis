@@ -34,6 +34,8 @@ _TABLE = {
     (T, "speak_start"): (S, []),
     (T, "turn_done"): (I, []),
     (S, "turn_done"): (I, []),
+    (T, "wake"): (L, ["cancel_turn"] + LISTEN),
+    (T, "hotkey_down"): (L, ["cancel_turn"] + LISTEN),
     (S, "wake"): (L, ["cancel_turn"] + LISTEN),
     (S, "hotkey_down"): (L, ["cancel_turn"] + LISTEN),
 }
@@ -51,12 +53,14 @@ class VoiceFSM:
         if event == "speech_300ms" and self.state is S and self.barge_in == "voice":
             self.state = L
             return ["cancel_turn", "start_buffer"]
+        # cancel and text_input come from the hub, which has already stopped its own
+        # turn: only stop local audio here, never send cancel_turn back to the hub.
         if event == "cancel" and self.state is not I:
             self.state = I
-            return ["cancel_turn"]
+            return ["stop_audio"]
         if event == "text_input" and self.state is not I:
             self.state = T
-            return ["cancel_turn"]
+            return ["stop_audio"]
         return []
 
 
@@ -104,6 +108,10 @@ class VoiceLoop:
         self._reset_listen()
         self._speech_ms = 0
         self._last_text = ""
+        # Bumped whenever in-flight audio work (a transcript, a synthesised sentence)
+        # becomes stale; work captures it at start and is dropped if it changed.
+        self._gen = 0
+        self._pending: list[tuple[str, asyncio.Future]] = []
 
     # -------- models
     def load(self) -> None:
@@ -156,7 +164,11 @@ class VoiceLoop:
                     self.available = True
                     pending = np.zeros(0, dtype=np.float32)
                     while True:
-                        pending = np.concatenate([pending, resample_to_16k(blocks.get(), sr)])
+                        try:  # an unplugged mic stops the callbacks without raising
+                            block = blocks.get(timeout=2)
+                        except queue.Empty:
+                            raise OSError("mic stopped delivering audio") from None
+                        pending = np.concatenate([pending, resample_to_16k(block, sr)])
                         while len(pending) >= FRAME:
                             self._frame(pending[:FRAME])
                             pending = pending[FRAME:]
@@ -168,7 +180,7 @@ class VoiceLoop:
     def _frame(self, f32: np.ndarray) -> None:
         pcm = (np.clip(f32, -1, 1) * 32767).astype(np.int16)
         state = self.fsm.state
-        if state in (State.IDLE, State.SPEAKING):
+        if state in (State.IDLE, State.THINKING, State.SPEAKING):
             if max(self.oww.predict(pcm).values()) > self.cfg.wake_threshold:
                 self.oww.reset()
                 self.event("wake")
@@ -183,7 +195,8 @@ class VoiceLoop:
             if self._heard and self._silence >= self.cfg.end_silence_ms and not self._held:
                 self.event("vad_end")
             elif time.monotonic() - self._t0 > LISTEN_CAP_S:
-                self.event("timeout")
+                # nothing said after a (false) wake: don't feed 15 s of room noise to Whisper
+                self.event("timeout" if self._heard else "cancel")
         elif state is State.SPEAKING:
             self._speech_ms = self._speech_ms + FRAME_MS if speech else 0
             if self._speech_ms >= BARGE_MS:
@@ -197,11 +210,13 @@ class VoiceLoop:
     # -------- events and actions
     def event(self, name: str) -> None:
         with self.lock:
+            if name == "hotkey_up" and self.fsm.state is State.LISTENING and not self._heard:
+                name = "cancel"  # a quick tap (e.g. a Right-Ctrl shortcut), not a question
             before = self.fsm.state
             actions = self.fsm.handle(name)
             if name == "hotkey_down":
                 self._held = "start_buffer" in actions
-            elif name == "hotkey_up":
+            elif name in ("hotkey_up", "cancel"):
                 self._held = False
             if self.fsm.state is not before:
                 self.on_event("state", {"state": self.fsm.state.value})
@@ -217,20 +232,24 @@ class VoiceLoop:
 
     def _do_transcribe(self) -> None:
         audio = np.concatenate(self._buf) if self._buf else np.zeros(0, np.float32)
-        threading.Thread(target=self._transcribe, args=(audio,), daemon=True).start()
+        threading.Thread(target=self._transcribe, args=(audio, self._gen), daemon=True).start()
 
-    def _transcribe(self, audio: np.ndarray) -> None:
+    def _transcribe(self, audio: np.ndarray, gen: int) -> None:
         text = self.transcribe(audio)
-        if text:
-            self._last_text = text
-            self.event("transcribed")
-        else:
-            self.event("transcribed_empty")
+        with self.lock:
+            if gen != self._gen:  # typed input, cancel or a new wake arrived meanwhile
+                return
+            if text:
+                self._last_text = text
+                self.event("transcribed")
+            else:
+                self.event("transcribed_empty")
 
     def transcribe(self, audio: np.ndarray) -> str:
         if len(audio) < RATE // 4:
             return ""
-        segments, _ = self.whisper.transcribe(audio, language="en", beam_size=1)
+        segments, _ = self.whisper.transcribe(audio, language="en", beam_size=1,
+                                              vad_filter=True)
         return " ".join(s.text.strip() for s in segments).strip()
 
     def _do_start_turn(self) -> None:
@@ -242,31 +261,65 @@ class VoiceLoop:
             self.event("turn_done")
         threading.Thread(target=run, daemon=True).start()
 
-    def _do_cancel_turn(self) -> None:
+    def _do_stop_audio(self) -> None:
         import sounddevice as sd
-        sd.stop()
+        with self.lock:
+            self._gen += 1
+            self._pending.clear()
+            sd.stop()
+
+    def _do_cancel_turn(self) -> None:
+        self._do_stop_audio()
         self.on_event("cancel_turn", {})
 
     # -------- speech out
-    def _speak_blocking(self, text: str) -> None:
+    def _synth(self, text: str) -> tuple[np.ndarray, int]:
+        return self.kokoro.create(text, voice=self.cfg.voice, speed=self.cfg.voice_speed,
+                                  lang="en-gb")
+
+    def _play(self, samples: np.ndarray, sr: int, gen: int) -> None:
         import sounddevice as sd
-        try:
-            samples, sr = self.kokoro.create(text, voice=self.cfg.voice,
-                                             speed=self.cfg.voice_speed, lang="en-gb")
+        with self.lock:
+            if gen != self._gen:  # cancelled while this sentence was being synthesised
+                return
             sd.play(samples, sr)
-            sd.wait()
+        sd.wait()
+
+    def _voice_failed(self, e: Exception) -> None:
+        self.on_event("banner", {"text": f"Voice output failed, showing text "
+                                         f"({e.__class__.__name__})"})
+
+    def _speak_blocking(self, text: str) -> None:
+        gen = self._gen
+        try:
+            self._play(*self._synth(text), gen)
         except Exception as e:
-            self.on_event("banner", {"text": "Voice output failed, showing text "
-                                             f"({e.__class__.__name__})"})
+            self._voice_failed(e)
+
+    def prepare(self, text: str) -> None:
+        """Start synthesising a sentence now, so it is ready when its turn to play comes."""
+        if self.kokoro is not None:
+            fut = asyncio.get_running_loop().run_in_executor(None, self._synth, text)
+            self._pending.append((text, fut))
 
     async def speak(self, text: str) -> None:
         if self.kokoro is None:
             return
+        gen = self._gen
+        fut = next((f for t, f in self._pending if t == text), None)
+        if fut is not None:
+            self._pending = [(t, f) for t, f in self._pending if f is not fut]
+        else:
+            fut = asyncio.get_running_loop().run_in_executor(None, self._synth, text)
         try:
-            await asyncio.to_thread(self._speak_blocking, text)
+            try:
+                samples, sr = await fut
+            except Exception as e:
+                self._voice_failed(e)
+                return
+            await asyncio.to_thread(self._play, samples, sr, gen)
         except asyncio.CancelledError:
-            import sounddevice as sd
-            sd.stop()
+            self._do_stop_audio()
             raise
 
 

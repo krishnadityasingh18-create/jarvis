@@ -135,3 +135,81 @@ async def test_budget_warning_spoken_once_per_day(cfg, conn, monkeypatch):
     await brain.run_turn(cfg, conn, "b", "fast", noop_emit, speak)
     assert said.count("Sir, we've used 80 percent of this month's budget.") == 1
     assert brain._warned_on == date.today()
+
+
+def test_abbreviations_and_list_numbers_do_not_split():
+    assert run(Splitter(), "Good evening, Dr. Rao is here. Fine.") == \
+        [("speak", "Good evening, Dr. Rao is here."), ("speak", "Fine.")]
+    assert run(Splitter(), "Use e.g. a MOSFET here. Done.")[0] == \
+        ("speak", "Use e.g. a MOSFET here.")
+    assert run(Splitter(), "Steps:\n1. foo\n2. bar")[:2] == \
+        [("speak", "Steps:"), ("speak", "1. foo")]
+
+
+async def test_history_includes_screen_detail_and_skips_empty(cfg, conn, monkeypatch):
+    db.add_message(conn, "user", "explain")
+    db.add_message(conn, "assistant", "Short.", screen="long detail")
+    db.add_message(conn, "assistant", "", interrupted=True)
+    seen = []
+
+    def fake(cfg, conn, messages, route):
+        seen.extend(messages)
+        return iter([("route", "fast"), ("text", "Ok.")])
+    monkeypatch.setattr(brain, "stream_reply", fake)
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "step 3?", "fast", noop_emit, speak)
+    assert {"role": "assistant", "content": "Short.\n---\nlong detail"} in seen
+    assert all(m["content"] for m in seen)
+
+
+async def test_unexpected_error_ends_turn_cleanly(cfg, conn, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("weird")
+        yield
+    monkeypatch.setattr(brain, "stream_reply", boom)
+    said, events = [], []
+
+    async def speak(s):
+        said.append(s)
+
+    async def emit(m):
+        events.append(m)
+    await brain.run_turn(cfg, conn, "hi", "fast", emit, speak)
+    assert said == [brain.NO_MODEL] and events[-1]["type"] == "turn_end"
+
+
+async def test_cancel_during_budget_warning_still_ends_turn(cfg, conn, monkeypatch):
+    monkeypatch.setattr(brain, "stream_reply",
+                        lambda *a, **k: iter([("route", "fast"), ("text", "Ok.")]))
+    monkeypatch.setattr(brain, "_warned_on", None)
+    db.record_usage(conn, "x", "m", 0, 0, 250)
+    events = []
+
+    async def speak(s):
+        if s == brain.BUDGET:
+            await asyncio.Event().wait()
+
+    async def emit(m):
+        events.append(m)
+    t = asyncio.create_task(brain.run_turn(cfg, conn, "a", "fast", emit, speak))
+    await asyncio.sleep(0.2)
+    t.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await t
+    assert events[-1]["type"] == "turn_end"
+
+
+async def test_sentences_prepared_as_they_arrive(cfg, conn, monkeypatch):
+    monkeypatch.setattr(brain, "stream_reply",
+                        lambda *a, **k: iter([("route", "fast"), ("text", "First. Second.")]))
+    prepared, state = [], {}
+
+    async def speak(s):
+        if s == "First.":
+            await asyncio.sleep(0.05)
+            state["prepared_while_first_plays"] = list(prepared)
+
+    await brain.run_turn(cfg, conn, "hi", "fast", noop_emit, speak, prepare=prepared.append)
+    assert state["prepared_while_first_plays"] == ["First.", "Second."]

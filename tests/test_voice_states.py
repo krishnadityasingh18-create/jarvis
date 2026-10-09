@@ -59,9 +59,9 @@ def test_voice_barge_in_in_voice_mode():
     assert f.handle("speech_300ms") == ["cancel_turn", "start_buffer"] and f.state is State.LISTENING
 
 
-def test_cancel_from_thinking():
+def test_cancel_from_thinking_only_stops_audio():
     f = fsm(State.THINKING)
-    assert f.handle("cancel") == ["cancel_turn"] and f.state is State.IDLE
+    assert f.handle("cancel") == ["stop_audio"] and f.state is State.IDLE
 
 
 def test_cancel_in_idle_ignored():
@@ -69,13 +69,15 @@ def test_cancel_in_idle_ignored():
     assert f.handle("cancel") == [] and f.state is State.IDLE
 
 
-def test_wake_while_thinking_ignored():
-    f = fsm(State.THINKING)
-    assert f.handle("wake") == [] and f.state is State.THINKING
+def test_wake_and_hotkey_while_thinking_barge_in():
+    for ev in ("wake", "hotkey_down"):
+        f = fsm(State.THINKING)
+        assert f.handle(ev) == ["cancel_turn", "chime", "start_buffer"] and f.state is State.LISTENING
 
 
 def test_text_input_idle_and_busy():
     f = fsm(State.IDLE)
     assert f.handle("text_input") == [] and f.state is State.THINKING
-    f = fsm(State.SPEAKING)
-    assert f.handle("text_input") == ["cancel_turn"] and f.state is State.THINKING
+    for st in (State.LISTENING, State.THINKING, State.SPEAKING):
+        f = fsm(st)  # the hub already stopped its own turn; only local audio stops here
+        assert f.handle("text_input") == ["stop_audio"] and f.state is State.THINKING

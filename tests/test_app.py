@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from fastapi.testclient import TestClient
 
@@ -139,3 +140,44 @@ def test_index_served(cfg, conn):
     with TestClient(create_app(cfg, conn)) as client:
         r = client.get("/")
     assert r.status_code == 200 and "JARVIS" in r.text
+
+
+def test_typing_while_listening_runs_typed_turn(cfg, conn, monkeypatch):
+    import sounddevice
+
+    from jarvis.voice import VoiceLoop
+    for name in ("play", "wait", "stop"):
+        monkeypatch.setattr(sounddevice, name, lambda *a, **k: None)
+    log = []
+
+    async def fake(cfg, conn, text, route, emit, speak, prepare=None):
+        log.append(("start", text))
+        try:
+            await asyncio.sleep(0.3)   # long enough for any stray cancel to land
+        except asyncio.CancelledError:
+            log.append(("cancelled", text))
+            await emit({"type": "turn_end"})
+            raise
+        log.append(("done", text))
+        await emit({"type": "turn_end"})
+
+    voice = VoiceLoop(cfg, lambda n, p: None)
+    voice._do_chime = lambda: None
+    app = create_app(cfg, conn, voice=voice, turn_runner=fake)
+    voice.on_event = app.state.hub.from_thread
+    with TestClient(app) as client:
+        ctx, ws = connect(client)
+        voice.event("wake")                      # a (false) wake: now LISTENING
+        ws.send_json({"type": "text_input", "text": "typed question"})
+        time.sleep(0.8)   # a buggy cancel can kill the turn before it starts, so no turn_end to wait on
+        ctx.__exit__(None, None, None)
+    assert log == [("start", "typed question"), ("done", "typed question")]
+
+
+def test_foreign_origin_rejected(cfg, conn):
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+    with TestClient(create_app(cfg, conn)) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/ws", headers={"origin": "http://evil.example"}) as ws:
+                ws.receive_json()

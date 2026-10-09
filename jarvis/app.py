@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from jarvis import brain, db
 
 UI = Path(__file__).parent / "ui"
+ALLOWED_ORIGINS = {"http://127.0.0.1:8765", "http://localhost:8765"}
 
 
 async def _no_speak(text: str) -> None:
@@ -60,9 +61,12 @@ class Hub:
         if typed and self.voice:
             self.voice.event("text_input")
         await self.broadcast({"type": "user_text", "text": text})
-        speak = self.voice.speak if self.voice else _no_speak
-        self.turn = asyncio.create_task(self.turn_runner(
-            self.cfg, self.conn, text, brain.pick_route(text, self.route), self.broadcast, speak))
+        args = (self.cfg, self.conn, text, brain.pick_route(text, self.route), self.broadcast)
+        if self.voice:
+            coro = self.turn_runner(*args, self.voice.speak, prepare=self.voice.prepare)
+        else:
+            coro = self.turn_runner(*args, _no_speak)
+        self.turn = asyncio.create_task(coro)
 
     async def cancel(self) -> None:
         await self._stop_turn()
@@ -101,6 +105,11 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
 
     @app.websocket("/ws")
     async def ws(sock: WebSocket):
+        # WebSockets bypass CORS: refuse pages from other sites (browsers always send Origin).
+        origin = sock.headers.get("origin")
+        if origin and origin not in ALLOWED_ORIGINS:
+            await sock.close(code=1008)
+            return
         await sock.accept()
         hub.loop = asyncio.get_running_loop()
         hub.sockets.add(sock)

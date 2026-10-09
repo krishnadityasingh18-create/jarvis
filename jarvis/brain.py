@@ -15,8 +15,20 @@ NO_MODEL = "I can't reach any model right now, sir."
 BUDGET = "Sir, we've used 80 percent of this month's budget."
 MAX_SPOKEN = 2
 
-# A sentence ends at . ? ! followed by whitespace (so "3.5" never splits), or at a newline.
+# A sentence ends at . ? ! followed by whitespace (so "3.5" never splits), or at a newline...
 _BOUNDARY = re.compile(r"[.?!](?=\s)|\n")
+# ...unless the period closes an abbreviation or a numbered-list marker ("1. foo").
+_NOT_END = re.compile(r"(?:^|\s)(?:mr|mrs|ms|dr|prof|vs|etc|approx|fig|no|st|e\.g|i\.e)\.$"
+                      r"|(?:^|\n)\s*\d+\.$", re.IGNORECASE)
+
+
+def _next_boundary(buf: str) -> re.Match | None:
+    pos = 0
+    while m := _BOUNDARY.search(buf, pos):
+        if m.group() == "\n" or not _NOT_END.search(buf[:m.end()]):
+            return m
+        pos = m.end()
+    return None
 
 _warned_on: date | None = None
 
@@ -35,7 +47,7 @@ class Splitter:
             return [("screen", delta)] if delta else []
         self.buf += delta
         out = []
-        while not self.screen_mode and (m := _BOUNDARY.search(self.buf)):
+        while not self.screen_mode and (m := _next_boundary(self.buf)):
             piece, self.buf = self.buf[:m.end()], self.buf[m.end():]
             if m.group() == "\n" and piece.strip() == "---":
                 self.screen_mode = True
@@ -87,11 +99,21 @@ def _pump(gen, loop, q: asyncio.Queue, stop: threading.Event) -> None:
         put(e)
 
 
-async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: Speak) -> None:
+def _history(conn) -> list[dict]:
+    """Past turns as the model wrote them: spoken part, then --- and the screen detail."""
+    out = []
+    for m in db.recent_messages(conn, 20):
+        content = m["content"] + ("\n---\n" + m["screen"] if m["screen"] else "")
+        if content.strip():
+            out.append({"role": m["role"], "content": content})
+    return out
+
+
+async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: Speak,
+                   prepare: Callable[[str], None] | None = None) -> None:
     global _warned_on
     db.add_message(conn, "user", user_text)
-    messages = [{"role": "system", "content": cfg.persona}] + [
-        {"role": m["role"], "content": m["content"]} for m in db.recent_messages(conn, 20)]
+    messages = [{"role": "system", "content": cfg.persona}] + _history(conn)
 
     spoken: list[str] = []
     screen: list[str] = []
@@ -110,6 +132,8 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
         if not speaking_started:
             speaking_started = True
             await emit({"type": "state", "state": "speaking"})
+        if prepare:
+            prepare(s)  # synthesise now, while earlier sentences are still playing
         sentences.put_nowait(s)
 
     q: asyncio.Queue = asyncio.Queue()
@@ -120,16 +144,15 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
     speaker_task = asyncio.create_task(speaker())
     splitter = Splitter()
     await emit({"type": "state", "state": "thinking"})
+    saved = False
     try:
         while (item := await q.get()) is not _END:
             if isinstance(item, Exception):
                 if isinstance(item, StreamBroken):
                     await say(LOST)
-                elif isinstance(item, AllRoutesFailed):
-                    await emit({"type": "banner", "text": str(item)})
+                else:  # AllRoutesFailed, or anything unexpected from the stream
+                    await emit({"type": "banner", "text": str(item) or type(item).__name__})
                     await say(NO_MODEL)
-                else:
-                    raise item
                 break
             kind, value = item
             if kind == "route":
@@ -153,19 +176,20 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
                 await emit({"type": "screen_delta", "text": v})
         sentences.put_nowait(None)
         await speaker_task
+        db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route)
+        saved = True
+
+        if db.budget_state(db.month_spend_inr(conn), cfg.monthly_inr) != "ok" \
+                and _warned_on != date.today():
+            _warned_on = date.today()
+            await emit({"type": "banner", "text": BUDGET})
+            await speak(BUDGET)
     except asyncio.CancelledError:
         stop.set()
         speaker_task.cancel()
-        db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
-                       interrupted=True)
-        await emit({"type": "turn_end"})
+        if not saved:
+            db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
+                           interrupted=True)
         raise
-
-    db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route)
-
-    if db.budget_state(db.month_spend_inr(conn), cfg.monthly_inr) != "ok" \
-            and _warned_on != date.today():
-        _warned_on = date.today()
-        await emit({"type": "banner", "text": BUDGET})
-        await speak(BUDGET)
-    await emit({"type": "turn_end"})
+    finally:
+        await emit({"type": "turn_end"})
