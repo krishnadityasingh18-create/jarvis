@@ -371,3 +371,20 @@ def test_history_never_starts_with_assistant(conn):
     db.add_message(conn, "assistant", "Hello.")
     h = brain._history(conn)
     assert h[0] == {"role": "user", "content": "hi"}
+
+
+async def test_system_prompt_names_the_users_real_folders(cfg, conn, monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    (home / "OneDrive" / "Desktop").mkdir(parents=True)
+    (home / "Downloads").mkdir()
+    monkeypatch.setattr(brain.Path, "home", lambda: home)
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted([("route", "fast"), ("text", "Ok.")],
+                                                        seen=seen))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "hi", "fast", noop_emit, speak)
+    system = seen[0]["messages"][0]["content"]
+    assert f"Desktop: {home / 'OneDrive' / 'Desktop'}" in system
+    assert f"Downloads: {home / 'Downloads'}" in system and "Documents:" not in system

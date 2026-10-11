@@ -18,6 +18,12 @@ model = "qwen/qwen3.8-27b"
 key = "groq"
 extra_body = { reasoning_effort = "none" }   # no thinking pass: faster, no leaked tags
 
+[routes.fast_alt2]
+base_url = "https://api.groq.com/openai/v1"
+model = "openai/gpt-oss-20b"
+key = "groq"
+extra_body = { reasoning_effort = "low" }
+
 [routes.reasoning]
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
 model = "gemini-2.5-flash"
@@ -31,7 +37,7 @@ key = ""
 
 [routing]
 default = "fast"
-fallback = ["fast", "fast_alt", "reasoning", "local"]
+fallback = ["fast", "fast_alt", "fast_alt2", "reasoning", "local"]
 
 [budget]
 monthly_inr = 300

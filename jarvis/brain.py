@@ -4,6 +4,7 @@ import re
 import threading
 from collections.abc import Awaitable, Callable
 from datetime import date
+from pathlib import Path
 
 from jarvis import db, tools
 from jarvis.llm import StreamBroken, stream_reply
@@ -196,6 +197,18 @@ async def agent_loop(ctx: tools.Ctx, messages: list[dict], route: str, tool_name
     return "".join(texts).strip() + "\n\n(Stopped after five steps.)"
 
 
+def _places() -> str:
+    """The user's real folders, so the model doesn't guess paths (it once invented a user name)."""
+    home = Path.home()
+    out = [f"home: {home}"]
+    for name in ("Desktop", "Documents", "Downloads"):
+        for p in (home / "OneDrive" / name, home / name):   # OneDrive moves Desktop/Documents
+            if p.is_dir():
+                out.append(f"{name}: {p}")
+                break
+    return "The user's folders (use these exact paths): " + "; ".join(out) + "."
+
+
 async def _refuse(question: str) -> bool:
     return False
 
@@ -205,7 +218,7 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
                    confirm: Callable[[str], Awaitable[bool]] | None = None) -> None:
     global _warned_on
     db.add_message(conn, "user", user_text)
-    system = cfg.persona + (f"\n\n{mb}" if (mb := memory_block(conn)) else "")
+    system = cfg.persona + "\n\n" + _places() + (f"\n\n{mb}" if (mb := memory_block(conn)) else "")
     messages = [{"role": "system", "content": system}] + _history(conn,
                                                                    redact=ui_route != "local")
     ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit)
