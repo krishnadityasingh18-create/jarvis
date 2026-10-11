@@ -299,16 +299,31 @@ around `{{purpose}}`, which JARVIS fills in for each call.
   - Commands with `confirm = true` ask first ("Start the motor rig, sir?").
   - `stop` and `off` never ask. They even work from the phone, so you can
     always stop something.
-  - Numbers are range-checked (`min`/`max`).
+  - After JARVIS has read an email, web page or file, everything except
+    stop/off asks first.
+  - From the phone or WhatsApp, only stop/off work.
+  - Device names must match: "desk fan" never runs the "desk heater". You get
+    "did you mean …?" instead.
+  - Numbers are range-checked (`min`/`max`) before you're asked.
   - `undo = "stop"` lets Undo send the safe opposite.
 - **Motor rig (from motor-fault-detection):** already set up. Plug in the
-  ESP32 and say "ping the motor rig", "start the motor rig", "set the motor
-  rig speed to 400" or "stop the motor rig".
-  - The port is found automatically.
+  ESP32 and say "start the motor rig", "set the motor rig speed to 400" or
+  "stop the motor rig".
+  - The port is found automatically, and opening it doesn't reset the ESP32.
+    If several devices use `port = "auto"`, give each a `match = "CP210"`
+    (part of its USB description).
+  - The rig's firmware stops the motor about 2 seconds after its last `PING`.
+    Long runs need the motor-fault dashboard, which sends pings; JARVIS sends
+    single commands.
   - If the motor-fault dashboard is using the port, JARVIS says the port is
-    busy.
+    busy. Stop the motor from the dashboard then.
 - **MQTT:** needs a broker (for example, Mosquitto). See the commented
   example in `config.toml`.
+  - If the broker needs a login, set `username` on the device. Store its
+    password with `keys set mqtt_<device_name>`, using underscores for spaces,
+    e.g. `mqtt_desk_lamp`.
+  - If the broker doesn't confirm a message, JARVIS says so instead of
+    "sent".
 
 ## Cost
 

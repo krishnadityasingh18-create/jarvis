@@ -160,8 +160,8 @@ transport = "serial"
 port = "auto"                 # or "COM5"; auto = the single USB serial device plugged in
 baud = 921600
 [devices.commands]
-ping = { send = "PING", reply = true }
-info = { send = "INFO", reply = true }
+ping = { send = "PING" }       # the rig answers in binary STATUS frames: no text reply to read
+info = { send = "INFO" }
 start = { send = "START", confirm = true, undo = "stop" }
 stop = { send = "STOP" }
 speed = { send = "PWM {value}", confirm = true, min = 0, max = 1023 }

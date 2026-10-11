@@ -57,6 +57,28 @@ class Config:
     app_dir: Path = Path(__file__).resolve().parents[1]   # the JARVIS folder: never written to
 
 
+def _devices(raw: list) -> list[dict]:
+    """Check [[devices]] entries once, at load, and name the broken one."""
+    out = []
+    for i, d in enumerate(raw):
+        who = d.get("name") or f"device #{i + 1}"
+        cmds = d.get("commands")
+        if not d.get("name") or not isinstance(cmds, dict) or not cmds:
+            raise ValueError(f"[[devices]] {who}: needs a name and [devices.commands]")
+        if d.get("transport", "serial") == "mqtt" and not d.get("topic"):
+            raise ValueError(f"[[devices]] {who}: an MQTT device needs a topic")
+        fixed = {}
+        for n, c in cmds.items():
+            if not isinstance(c, dict) or not c.get("send"):
+                raise ValueError(f"[[devices]] {who}: command '{n}' needs send = \"...\"")
+            if "{value}" in c["send"] and ("min" not in c or "max" not in c):
+                raise ValueError(f"[[devices]] {who}: command '{n}' takes a value, so it "
+                                 "needs min and max")
+            fixed[n.lower()] = {**c, **({"undo": c["undo"].lower()} if c.get("undo") else {})}
+        out.append({**d, "commands": fixed})
+    return out
+
+
 def load_config(path: Path = Path("config.toml")) -> Config:
     t = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     v = t["voice"]
@@ -85,7 +107,7 @@ def load_config(path: Path = Path("config.toml")) -> Config:
         latitude=t.get("briefing", {}).get("latitude", 12.82),
         longitude=t.get("briefing", {}).get("longitude", 80.04),
         remote=t.get("remote", {}),
-        devices=t.get("devices", []),
+        devices=_devices(t.get("devices", [])),
     )
 
 
