@@ -1,5 +1,6 @@
 import tomllib
 from dataclasses import dataclass, field
+from datetime import time
 from pathlib import Path
 
 import keyring
@@ -47,6 +48,10 @@ class Config:
     file_exclude: list[str]
     content_exclude: list[str] = field(default_factory=list)
     content_private: bool = True
+    briefing_enabled: bool = True
+    briefing_time: time = time(7, 30)
+    latitude: float = 12.82     # SRM Kattankulathur, for the weather
+    longitude: float = 80.04
     app_dir: Path = Path(__file__).resolve().parents[1]   # the JARVIS folder: never written to
 
 
@@ -73,6 +78,10 @@ def load_config(path: Path = Path("config.toml")) -> Config:
         file_exclude=t["files"]["exclude"],
         content_exclude=t["files"].get("content_exclude", []),
         content_private=t["files"].get("content_private", True),
+        briefing_enabled=t.get("briefing", {}).get("enabled", True),
+        briefing_time=time.fromisoformat(t.get("briefing", {}).get("time", "07:30")),
+        latitude=t.get("briefing", {}).get("latitude", 12.82),
+        longitude=t.get("briefing", {}).get("longitude", 80.04),
     )
 
 

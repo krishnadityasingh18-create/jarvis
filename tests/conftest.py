@@ -14,6 +14,7 @@ def cfg(tmp_path):
     c = load_config(Path("config.toml"))
     c.routes = {n: dataclasses.replace(r) for n, r in c.routes.items()}
     c.db_path = tmp_path / "j.db"
+    c.briefing_enabled = False   # the app clock must not start briefings during tests
     return c
 
 

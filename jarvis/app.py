@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -86,6 +87,37 @@ class Hub:
         except Exception as e:
             await self.broadcast({"type": "banner", "text": f"Couldn't undo: {e}"})
 
+    BRIEFING_PROMPT = "Give me my morning briefing."
+
+    async def tick(self, now: datetime) -> None:
+        """Every 30 s: speak due reminders, and start the morning briefing once a day.
+        These are the only things JARVIS does unasked (the user set them up)."""
+        if self.turn is not None and not self.turn.done() and not self.turn.cancelling():
+            return   # never talk over a reply; try again next tick
+        due = self.conn.execute("SELECT id, at, text FROM reminders WHERE done=0 AND at <= ? "
+                                "ORDER BY at", (now.isoformat(timespec="minutes"),)).fetchall()
+        for rid, at, text in due:
+            self.conn.execute("UPDATE reminders SET done=1 WHERE id=?", (rid,))
+            late = datetime.fromisoformat(at) < now - timedelta(minutes=5)
+            await self.broadcast({"type": "banner",
+                                  "text": f"Reminder{' (late)' if late else ''}: {text}"})
+            if self.voice:
+                await self.voice.speak(f"{'A late reminder' if late else 'Reminder'}, sir: {text}")
+        if due or not self.cfg.briefing_enabled or now.time() < self.cfg.briefing_time:
+            return
+        key = f"briefed:{now.date().isoformat()}"
+        if not self.conn.execute("SELECT 1 FROM kv WHERE key=?", (key,)).fetchone():
+            self.conn.execute("INSERT INTO kv(key, value) VALUES(?,?)", (key, now.isoformat()))
+            await self.start_turn(self.BRIEFING_PROMPT, typed=False)
+
+    async def clock(self) -> None:
+        while True:
+            try:
+                await self.tick(datetime.now())
+            except Exception as e:   # a bad row must not stop reminders for good
+                await self.broadcast({"type": "banner", "text": f"Scheduler error: {e}"})
+            await asyncio.sleep(30)
+
     async def _stop_turn(self) -> None:
         for fut in self.pending.values():   # an open question counts as "no"
             if not fut.done():
@@ -143,7 +175,9 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         hub.loop = asyncio.get_running_loop()
+        clock = asyncio.create_task(hub.clock())
         yield
+        clock.cancel()
 
     app = FastAPI(lifespan=lifespan)
     app.state.hub = hub

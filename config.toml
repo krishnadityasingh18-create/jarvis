@@ -128,3 +128,9 @@ content_exclude = ["My project", ".claude", ".vscode", ".platformio", ".codeium"
                    ".dotnet", ".android", ".gradle", ".m2", ".npm", ".conda", "anaconda3",
                    "miniconda3", "libraries"]
 content_private = false # true: file contents only ever go to the local model (private, weaker)
+
+[briefing]
+enabled = true
+time = "07:30"          # morning briefing, once a day, while JARVIS is running
+latitude = 12.82        # SRM Kattankulathur (weather)
+longitude = 80.04
