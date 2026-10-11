@@ -41,6 +41,7 @@ class Ctx:
     actions: list[dict] = field(default_factory=list)   # {name, arguments, result} for history
     private: bool = False     # file contents were read this turn
     tainted: bool = False     # untrusted text was read this turn: side effects need a yes
+    remote: str | None = None # "phone"/"whatsapp": nothing with a side effect from there
 
 
 TOOLS: dict[str, Tool] = {}
@@ -121,6 +122,13 @@ async def run(ctx: Ctx, call: dict) -> str:
         return "Error: the tool arguments were not valid JSON."
     # Sub-agents and tainted turns ask before anything that changes something; looking
     # (search, read) doesn't ask: a researcher asking before every search was unusable.
+    if ctx.remote:
+        allow = (getattr(ctx.cfg, "remote", {}) or {}).get("allow", [])
+        if not t.readonly and name not in allow:
+            return (f"Error: {name} needs the user at the desk; it can't be done over "
+                    f"{ctx.remote}. Tell them that.")
+        if t.private and ctx.cfg.content_private:
+            return f"Error: the user's private files can't be read over {ctx.remote}."
     if ctx.private and ctx.cfg.content_private and _exports(ctx, t, args):
         return (f"Error: this request used the user's private files, so {name} can't run in "
                 "it: nothing from it may reach the internet or cloud models. The user can ask "

@@ -43,7 +43,8 @@ _warned_on: date | None = None
 class Splitter:
     """Streams LLM text into ("speak", sentence) and ("screen", text) events."""
 
-    def __init__(self):
+    def __init__(self, all_spoken: bool = False):
+        self.all_spoken = all_spoken   # phone/WhatsApp: no screen, every sentence is said
         self.buf = ""
         self.screen_mode = False
         self.spoken = 0
@@ -65,6 +66,8 @@ class Splitter:
             piece, self.buf = self.buf[:m.end()], self.buf[m.end():]
             if m.group() == "\n" and piece.rstrip().endswith("---"):
                 out += self._sentence(piece.rstrip()[:-3])  # "sir.---": models glue it on
+                if self.all_spoken:
+                    continue
                 self.screen_mode = True
                 rest, self.buf = self.buf, ""
                 if rest:
@@ -83,7 +86,7 @@ class Splitter:
         s = s.strip()
         if not s:
             return []
-        if self.spoken < MAX_SPOKEN:
+        if self.all_spoken or self.spoken < MAX_SPOKEN:
             self.spoken += 1
             return [("speak", s)]
         self.overflow += 1
@@ -230,9 +233,10 @@ def _plan_line(plan: str, tainted: bool) -> str:
 
 
 VIA = {"phone": "a phone call", "whatsapp": "WhatsApp"}
-REMOTE_NOTE = ("\n\nYou are talking to the user over {via}, away from the desk. Keep replies "
-               "short and spoken; there is no screen. Anything that needs the user's approval "
-               "can't be approved from here: say it needs them at the desk.")
+REMOTE_NOTE = ("\n\nYou are talking to the user over {via}, away from the desk. There is no "
+               "screen: never write a --- section; say everything in at most eight short "
+               "sentences, no markdown. Nothing can be changed or approved from here (tools "
+               "that change things will refuse): say it needs them at the desk.")
 
 
 _BRIEFING = re.compile(r"\b(brief me|(morning|daily|today'?s) briefing)\b", re.IGNORECASE)
@@ -302,7 +306,8 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
                                                                    redact=True)
     # remote words arrive over the internet: treat them like outside text (side effects need
     # an approval that can't be given from there)
-    ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit, tainted=remote)
+    ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit, tainted=remote,
+                    remote=channel if remote else None)
     tool_names = [n for n in tools.TOOLS if not (remote and n == "ask_claude")]
 
     spoken: list[str] = []
@@ -311,7 +316,7 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
     sentences: asyncio.Queue = asyncio.Queue()
     speaking_started = False
     banner_shown = False
-    splitter = Splitter()
+    splitter = Splitter(remote)
 
     async def speaker():
         while (s := await sentences.get()) is not None:
@@ -350,7 +355,7 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
             await out(splitter.feed(value))
         elif kind == "step_end":
             await out(splitter.flush())
-            spoken_so_far, splitter = splitter.spoken, Splitter()
+            spoken_so_far, splitter = splitter.spoken, Splitter(remote)
             splitter.spoken = spoken_so_far   # the two-sentence limit is per turn
         elif kind == "tools":
             await sentences.join()   # finish speaking before acting or asking to confirm

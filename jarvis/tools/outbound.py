@@ -6,7 +6,8 @@ from jarvis.config import get_key
 from jarvis.tools import tool
 
 VAPI_CALL = "https://api.vapi.ai/call"
-_NUMBER = re.compile(r"^\+?\d{8,15}$")
+_NUMBER = re.compile(r"^\+\d{8,15}$", re.ASCII)   # E.164, as Vapi and WhatsApp need
+MAX_MESSAGE = 500
 
 
 def _post(url: str, headers: dict, payload: dict) -> dict:
@@ -35,7 +36,7 @@ def _need(cfg, *names: str) -> dict:
 def _number(n: str) -> str:
     n = re.sub(r"[\s\-()]", "", str(n))
     if not _NUMBER.match(n):
-        raise ValueError(f"'{n}' doesn't look like a phone number")
+        raise ValueError(f"'{n}' isn't a phone number with its country code, like +91…")
     return n
 
 
@@ -63,17 +64,24 @@ def place_call(ctx, number, purpose):
     n = _number(number)
     # a separate Vapi assistant: the JARVIS one would talk to a stranger as if to "sir"
     s = _need(ctx.cfg, "vapi_key", "vapi_phone_id", "vapi_outbound_assistant_id")
-    c = _vapi_call(s, n, s["vapi_outbound_assistant_id"],
-                   f"Hello, I'm calling on behalf of my user. {purpose}")
+    c = _post(VAPI_CALL, {"Authorization": f"Bearer {s['vapi_key']}"}, {
+        "phoneNumberId": s["vapi_phone_id"], "assistantId": s["vapi_outbound_assistant_id"],
+        "customer": {"number": n},
+        # the outbound assistant's prompt uses {{purpose}} for what the call is about
+        "assistantOverrides": {"variableValues": {"purpose": purpose},
+                               "firstMessage": "Hello, I'm an assistant calling on someone's "
+                                               f"behalf about this: {purpose}."}})
     return f"Calling {n} ({c.get('id', 'call started')}).", None
 
 
 @tool("Send a WhatsApp message through the user's n8n workflow. Only when the user asks; "
       "asks first.", confirm=True, exports=True,
-      describe=lambda a: f"send WhatsApp to {a.get('to', '')}: '{str(a.get('text', ''))[:60]}'",
+      describe=lambda a: f"send WhatsApp to {a.get('to', '')}: '{a.get('text', '')}'",
       to="string: phone number with country code", text="string: the message")
 def send_whatsapp(ctx, to, text):
     n = _number(to)
+    if len(text) > MAX_MESSAGE:   # the question shows the whole text, so keep it readable
+        raise ValueError(f"keep the message under {MAX_MESSAGE} characters")
     s = _need(ctx.cfg, "whatsapp_webhook", "n8n_token")
     headers = {"Authorization": f"Bearer {s['n8n_token']}"} if s.get("n8n_token") else {}
     _post(s["whatsapp_webhook"], headers, {"to": n, "text": text})

@@ -15,7 +15,7 @@ async def delegate(ctx, agent, task):
         raise ValueError(f"no agent called {agent}; available: {', '.join(ctx.cfg.agents)}")
     await ctx.emit({"type": "agent", "agent": agent})
     child = Ctx(ctx.cfg, ctx.conn, ctx.confirm, ctx.emit, agent=agent, allowed=list(a.tools),
-                tainted=ctx.tainted, private=ctx.private)
+                tainted=ctx.tainted, private=ctx.private, remote=ctx.remote)
     text = await agent_loop(child, [{"role": "system", "content": a.prompt},
                                     {"role": "user", "content": task}],
                             a.route, a.tools, fallback=a.fallback)

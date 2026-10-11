@@ -62,3 +62,27 @@ async def test_bad_number_refused(cfg, conn, setup):
 def test_flags():
     assert not TOOLS["call_me"].confirm and TOOLS["place_call"].confirm
     assert TOOLS["send_whatsapp"].confirm and TOOLS["send_whatsapp"].exports
+
+
+async def test_whatsapp_question_shows_the_whole_message(cfg, conn, setup):
+    text = "Running late. " + "x" * 200
+    ctx = make_ctx(cfg, conn, answer=False)
+    await run(ctx, call("send_whatsapp", to="+911234567890", text=text))
+    assert text in ctx.asked[0]
+    r = await run(make_ctx(cfg, conn), call("send_whatsapp", to="+911234567890", text="y" * 600))
+    assert r.startswith("Error")
+
+
+@pytest.mark.parametrize("number", ["9999999999", "+\u0669\u0669\u0669\u0669\u0669\u0669\u0669\u0669\u0669"])
+async def test_numbers_must_be_international_ascii(cfg, conn, setup, number):
+    r = await run(make_ctx(cfg, conn), call("place_call", number=number, purpose="x"))
+    assert r.startswith("Error") and setup == []
+
+
+async def test_place_call_passes_the_purpose_as_context(cfg, conn, setup):
+    cfg.remote["vapi_outbound_assistant_id"] = "out1"
+    await run(make_ctx(cfg, conn), call("place_call", number="+911234567890",
+                                        purpose="book a table for two at 8"))
+    payload = setup[0][2]
+    assert payload["assistantId"] == "out1"
+    assert payload["assistantOverrides"]["variableValues"]["purpose"] == "book a table for two at 8"

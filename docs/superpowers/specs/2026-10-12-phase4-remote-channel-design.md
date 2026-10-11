@@ -86,3 +86,15 @@ estimate (`[prices] vapi_inr_per_min`).
 4. WhatsApp goes through the user's existing n8n workflow (a webhook), not a new service.
 5. No outbound call or message without the user's explicit request + confirmation, except
    `call_me` to the user's own number.
+
+## 9. Changes after review (2026-10-12)
+
+- **Caller check:** the token only proves Vapi/n8n; requests must also come from the user's
+  number (`my_number`, `allowed_numbers`). Unknown WhatsApp senders: 403, no turn. Unknown or
+  missing Vapi caller: "I can't verify who's calling", no turn.
+- **Remote is read-only:** every non-read-only tool is refused remotely (including plan,
+  tasks, timetable), except names listed in `[remote] allow`. Private file tools are refused
+  remotely while `content_private` is on.
+- **Phone replies are fully spoken** (no screen part, no two-sentence cap).
+- **Deferred (Rulings):** `remind(..., call=true)` and counting Vapi minutes against the
+  budget — they need the user's real Vapi setup to test; tracked for after setup.

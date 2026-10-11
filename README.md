@@ -264,13 +264,30 @@ The same JARVIS, with the same memory, plan and tools, answers on the phone
      its id in `vapi_outbound_assistant_id`.
    - Twilio trial accounts can only call verified numbers.
 4. **n8n:**
-   - In your WhatsApp workflow, add an HTTP Request node. Set it to POST
-     `<address>/api/message` with the header `Authorization: Bearer <token>`
-     and the body `{"text": "{{ $json.message }}"}`. Send `reply` back to the
-     sender.
+   - In your WhatsApp workflow, add an HTTP Request node:
+     - POST to `<address>/api/message`, with the header
+       `Authorization: Bearer <token>`.
+     - Use the body fields "text" (the message) and "from" (the sender's
+       number). Set them as fields, or as JSON built with
+       `JSON.stringify(...)`, so a quote in a message can't break it.
+     - Send `reply` back to the sender.
    - For JARVIS to send WhatsApp messages, add a webhook workflow that takes
      `{"to", "text"}`. Put its URL in `whatsapp_webhook`; if it checks a token,
      store it with `keys set n8n_token`.
+
+**Only you get in:** the token proves a request came from Vapi or n8n, not
+who's talking. So JARVIS only answers your own number: `my_number`, plus any
+`allowed_numbers = ["+91…"]` in `[remote]`.
+- WhatsApp messages from anyone else get no turn at all.
+- Callers from other numbers hear "I can't verify who's calling". This also
+  happens if Vapi doesn't send the caller's number.
+- Caller ID can be spoofed, so nothing that changes anything ever works
+  remotely.
+- `[remote] allow = ["add_task"]` lets specific harmless tools through if you
+  want them.
+
+For the outbound assistant (calling other people), write its Vapi prompt
+around `{{purpose}}`, which JARVIS fills in for each call.
 
 ## Cost
 

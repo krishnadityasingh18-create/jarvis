@@ -26,7 +26,11 @@ def fake_runner(log):
     return run
 
 
+ME = "+919999999999"
+
+
 def client(cfg, conn, log):
+    cfg.remote = {"my_number": ME}
     return TestClient(create_app(cfg, conn, turn_runner=fake_runner(log)))
 
 
@@ -51,14 +55,15 @@ def test_no_token_configured_means_closed(cfg, conn, monkeypatch):
 def test_message_round_trip(cfg, conn):
     log = []
     with client(cfg, conn, log) as c:
-        r = c.post("/api/message", json={"text": "how's my day", "from": "+91"}, headers=AUTH)
+        r = c.post("/api/message", json={"text": "how's my day", "from": ME}, headers=AUTH)
     assert r.status_code == 200 and r.json()["reply"] == "Hello, sir. All quiet today.\n\ndetail"
     assert log == [("how's my day", "whatsapp")]
 
 
 def test_chat_completions_streams_spoken_part(cfg, conn):
     log = []
-    body = {"model": "jarvis", "stream": True, "messages": [
+    body = {"model": "jarvis", "stream": True, "call": {"customer": {"number": ME}},
+            "messages": [
         {"role": "system", "content": "vapi prompt"}, {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "Hello"}, {"role": "user", "content": "how's my day"}]}
     with client(cfg, conn, log) as c:
@@ -76,7 +81,7 @@ def test_chat_completions_streams_spoken_part(cfg, conn):
 def test_rate_limit(cfg, conn, monkeypatch):
     monkeypatch.setattr(remote, "PER_MINUTE", 3)
     with client(cfg, conn, []) as c:
-        codes = [c.post("/api/message", json={"text": "hi"}, headers=AUTH).status_code
+        codes = [c.post("/api/message", json={"text": "hi", "from": ME}, headers=AUTH).status_code
                  for _ in range(5)]
     assert codes == [200, 200, 200, 429, 429]
 
@@ -108,7 +113,6 @@ async def test_ask_claude_line_is_desk_only(cfg, conn, monkeypatch):
     assert seen    # went to the normal brain, not straight to Claude Code
 
 
-
 @pytest.mark.parametrize("header", ["CF-Connecting-IP", "X-Forwarded-For"])
 def test_tunnelled_requests_only_reach_the_remote_api(cfg, conn, header):
     import pytest as _pytest
@@ -120,9 +124,9 @@ def test_tunnelled_requests_only_reach_the_remote_api(cfg, conn, header):
         with _pytest.raises(WebSocketDisconnect):
             with c.websocket_connect("/ws", headers={**via, "origin": "http://127.0.0.1:8765"}) as ws:
                 ws.receive_json()
-        assert c.post("/api/message", json={"text": "hi"}, headers={**via, **AUTH}).status_code == 200
+        assert c.post("/api/message", json={"text": "hi", "from": ME},
+                      headers={**via, **AUTH}).status_code == 200
         assert c.get("/").status_code == 200          # the desk itself still works
-
 
 
 def test_slow_phone_turn_gets_a_filler_first(cfg, conn, monkeypatch):
@@ -133,7 +137,9 @@ def test_slow_phone_turn_gets_a_filler_first(cfg, conn, monkeypatch):
         await _asyncio.sleep(0.4)
         await emit({"type": "spoken_sentence", "text": "Done."})
         await emit({"type": "turn_end"})
-    body = {"stream": True, "messages": [{"role": "user", "content": "hi"}]}
+    body = {"stream": True, "messages": [{"role": "user", "content": "hi"}],
+            "call": {"customer": {"number": ME}}}
+    cfg.remote = {"my_number": ME}
     with TestClient(create_app(cfg, conn, turn_runner=slow)) as c:
         r = c.post("/v1/chat/completions", json=body, headers=AUTH)
     deltas = [json.loads(ln[6:])["choices"][0]["delta"].get("content", "")
@@ -152,3 +158,78 @@ def test_remote_token_cli_prints_on_a_plain_console(monkeypatch, capsys):
     cli.remote_cli(["token"])
     out.flush()
     assert saved["remote_token"] in out.buffer.getvalue().decode("cp1252")
+
+
+@pytest.mark.parametrize("sender", [None, "+911111111111", ""])
+def test_whatsapp_from_strangers_refused(cfg, conn, sender):
+    log = []
+    body = {"text": "read my email"} | ({"from": sender} if sender is not None else {})
+    with client(cfg, conn, log) as c:
+        r = c.post("/api/message", json=body, headers=AUTH)
+    assert r.status_code == 403 and log == []
+
+
+def test_whatsapp_number_formats_match(cfg, conn):
+    log = []
+    with client(cfg, conn, log) as c:
+        r = c.post("/api/message", json={"text": "hi", "from": "whatsapp:+91 99999-99999"},
+                   headers=AUTH)
+    assert r.status_code == 200 and log
+
+
+@pytest.mark.parametrize("call", [None, {"customer": {"number": "+911111111111"}}])
+def test_phone_strangers_get_a_refusal_and_no_turn(cfg, conn, call):
+    log = []
+    body = {"stream": True, "messages": [{"role": "user", "content": "read my email"}]}
+    if call:
+        body["call"] = call
+    with client(cfg, conn, log) as c:
+        r = c.post("/v1/chat/completions", json=body, headers=AUTH)
+    text = "".join(json.loads(ln[6:])["choices"][0]["delta"].get("content", "")
+                   for ln in r.text.splitlines() if ln.startswith("data: {"))
+    assert log == [] and "can't verify" in text
+
+
+@pytest.mark.parametrize("raw", [b"not json", b"[1, 2]", b'{"text": null, "from": "+919999999999"}'])
+def test_bad_bodies_are_400(cfg, conn, raw):
+    with client(cfg, conn, []) as c:
+        r = c.post("/api/message", content=raw, headers={**AUTH, "content-type": "application/json"})
+    assert r.status_code == 400
+
+
+def test_stream_ends_when_the_turn_crashes(cfg, conn, monkeypatch):
+    monkeypatch.setattr(remote, "FILLER_AFTER_S", 5)
+
+    async def boom(cfg, conn, text, route, emit, speak, **kw):
+        raise RuntimeError("db locked")
+    cfg.remote = {"my_number": ME}
+    body = {"stream": True, "messages": [{"role": "user", "content": "hi"}],
+            "call": {"customer": {"number": ME}}}
+    with TestClient(create_app(cfg, conn, turn_runner=boom)) as c:
+        r = c.post("/v1/chat/completions", json=body, headers=AUTH)
+    assert r.text.rstrip().endswith("data: [DONE]")
+
+
+async def test_remote_turn_refuses_every_side_effect(cfg, conn, monkeypatch):
+    from jarvis.tools import run as run_tool
+    from tests.test_tools import call as tool_call, make_ctx
+    ctx = make_ctx(cfg, conn)
+    ctx.remote, ctx.tainted = "whatsapp", True
+    for c in (tool_call("set_plan", text="x"), tool_call("add_task", title="x"),
+              tool_call("add_class", day="Monday", start="09:00", end="10:00", subject="x")):
+        r = await run_tool(ctx, c)
+        assert "at the desk" in r, c["name"]
+    cfg.remote = {"allow": ["add_task"]}
+    assert (await run_tool(ctx, tool_call("add_task", title="ok"))).startswith("Added")
+    assert "at the desk" not in await run_tool(ctx, tool_call("list_tasks"))
+
+
+async def test_phone_reply_is_all_spoken(cfg, conn, monkeypatch):
+    seen_said = []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), ("text", "One. Two. Three. Four.\n---\nmore detail")]))
+
+    async def speak(s):
+        seen_said.append(s)
+    await brain.run_turn(cfg, conn, "tasks?", "fast", noop_emit, speak, channel="phone")
+    assert seen_said == ["One.", "Two.", "Three.", "Four.", "more detail"]
