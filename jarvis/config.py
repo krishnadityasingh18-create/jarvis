@@ -18,6 +18,15 @@ class Route:
 
 
 @dataclass
+class Agent:
+    name: str
+    route: str
+    fallback: bool
+    tools: list[str]
+    prompt: str
+
+
+@dataclass
 class Config:
     routes: dict[str, Route]
     default_route: str
@@ -32,6 +41,9 @@ class Config:
     voice_speed: float
     whisper_model: str
     db_path: Path
+    agents: dict[str, Agent]
+    file_roots: list[Path]
+    file_exclude: list[str]
 
 
 def load_config(path: Path = Path("config.toml")) -> Config:
@@ -51,6 +63,10 @@ def load_config(path: Path = Path("config.toml")) -> Config:
         voice_speed=v["speed"],
         whisper_model=v["whisper_model"],
         db_path=Path(t["data"]["db_path"]),
+        agents={n: Agent(name=n, **{**a, "prompt": a["prompt"].strip()})
+                for n, a in t["agents"].items()},
+        file_roots=[Path(r).expanduser() for r in t["files"]["roots"]],
+        file_exclude=t["files"]["exclude"],
     )
 
 

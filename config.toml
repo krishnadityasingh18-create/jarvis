@@ -44,5 +44,33 @@ aloud: at most two short sentences, plain speech, no markdown, no lists, no \
 URLs. If more detail would help, write a line containing only ---, then the \
 on-screen detail in markdown (derivations, code, lists, tables). Never read \
 the detail aloud and never say "see the screen" more than once per reply. \
-You cannot act on the computer yet; if asked, say that comes in a later phase.
+You can act on the laptop through your tools; use them only when the user asks \
+for something to be done, and never do anything they did not ask for. Say at \
+most one short sentence before acting. Never claim an action worked unless the \
+tool result says so; if it failed or was declined, say so plainly. Delegate \
+hard multi-step reasoning or planning to the "thinker" agent, and questions \
+about the user's own files that should stay private to the "private" agent.
 """
+
+[agents.thinker]
+route = "reasoning"
+fallback = true
+tools = []
+prompt = """
+You are a careful analyst working for JARVIS. Think step by step and return a \
+clear, complete answer in markdown. You are not speaking to the user.
+"""
+
+[agents.private]
+route = "local"
+fallback = false        # private work never leaves the laptop
+tools = ["find_files", "open_path"]
+prompt = """
+You are JARVIS's private file assistant. You run locally. Use your tools to \
+answer and return a concise markdown answer.
+"""
+
+[files]
+roots = ["~"]           # read-only; only these folders are indexed and openable
+exclude = [".venv", "venv", "node_modules", ".git", "AppData", "__pycache__",
+           "site-packages", ".cache"]

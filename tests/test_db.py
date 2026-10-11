@@ -45,3 +45,40 @@ def test_load_config_reads_routes():
     assert cfg.default_route == "fast" and cfg.routes["local"].key == ""
     assert cfg.voice == "bm_lewis" and cfg.monthly_inr == 300
     assert '"sir"' in cfg.persona
+
+
+def test_action_log_roundtrip(conn):
+    aid = db.log_action(conn, "open_app", {"name": "Chrome"}, "ok", "done",
+                        {"kind": "close_windows", "hwnds": [1]}, None)
+    db.update_action(conn, aid, status="undone")
+    a = db.recent_actions(conn)[0]
+    assert a["id"] == aid and a["status"] == "undone"
+    assert a["args"] == {"name": "Chrome"} and a["undo"]["hwnds"] == [1]
+    assert db.get_action(conn, aid)["tool"] == "open_app"
+    assert db.get_action(conn, 999) is None
+
+
+def test_memory_add_delete_restore(conn):
+    mid = db.add_memory(conn, "lab on Thursdays")
+    assert db.delete_memory(conn, mid) == "lab on Thursdays"
+    assert db.memories(conn) == []
+    db.restore_memory(conn, mid, "lab on Thursdays")
+    assert [(m["id"], m["text"]) for m in db.memories(conn)] == [(mid, "lab on Thursdays")]
+
+
+def test_messages_actions_column(conn):
+    db.add_message(conn, "assistant", "hi", actions="open_app Chrome → done")
+    assert db.recent_messages(conn)[-1]["actions"] == "open_app Chrome → done"
+
+
+def test_old_db_gets_actions_column(tmp_path):
+    import sqlite3
+    p = tmp_path / "old.db"
+    old = sqlite3.connect(p)
+    old.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, ts TEXT, role TEXT, "
+                "content TEXT, screen TEXT, route TEXT, interrupted INTEGER DEFAULT 0)")
+    old.commit()
+    old.close()
+    c = db.connect(p)
+    cols = [r[1] for r in c.execute("PRAGMA table_info(messages)")]
+    assert "actions" in cols
