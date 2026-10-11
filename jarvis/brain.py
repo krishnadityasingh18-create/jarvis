@@ -45,15 +45,23 @@ class Splitter:
         self.screen_mode = False
         self.spoken = 0
         self.overflow = 0
+        self.unescape = False   # the model wrote "\\n" (backslash, n) instead of newlines
 
     def feed(self, delta: str) -> list[tuple[str, str]]:
         if self.screen_mode:
+            if self.unescape:
+                # ponytail: misses a backslash and n split across two deltas; rare, cosmetic
+                delta = delta.replace("\\n", "\n")
             return [("screen", delta)] if delta else []
         self.buf += delta
+        if "---\\n" in self.buf:
+            self.unescape = True
+            self.buf = self.buf.replace("\\n", "\n")
         out = []
         while not self.screen_mode and (m := _next_boundary(self.buf)):
             piece, self.buf = self.buf[:m.end()], self.buf[m.end():]
-            if m.group() == "\n" and piece.strip() == "---":
+            if m.group() == "\n" and piece.rstrip().endswith("---"):
+                out += self._sentence(piece.rstrip()[:-3])  # "sir.---": models glue it on
                 self.screen_mode = True
                 rest, self.buf = self.buf, ""
                 if rest:

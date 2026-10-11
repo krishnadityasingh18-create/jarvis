@@ -70,7 +70,8 @@ def inside_roots(path: Path, roots: list[Path], exclude: list[str] = ()) -> bool
 
 
 @tool("Open a file or folder in its default app. Only inside the user's allowed folders; "
-      "never programs or scripts.", path="string: full path, e.g. from find_files")
+      "never programs or scripts.", describe=lambda a: f"open {Path(a.get('path', '')).name}",
+      path="string: full path, e.g. from find_files")
 def open_path(ctx, path):
     p = Path(path).expanduser()
     if not p.is_absolute():

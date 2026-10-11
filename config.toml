@@ -1,19 +1,22 @@
 # JARVIS config. Secrets are NOT here: `key` is a keyring entry name
 # (set with `python -m jarvis keys set <name>`). Prices are ₹ per 1M tokens.
 
+# llama-3.3-70b-versatile was retired by Groq (404 as of 2026-10). gpt-oss-120b
+# calls tools most reliably (~0.6 s to first token); qwen3.8-27b is faster but
+# sometimes says "noted" without saving.
 [routes.fast]
 base_url = "https://api.groq.com/openai/v1"
-model = "qwen/qwen3.8-27b"   # llama-3.3-70b-versatile was retired by Groq (404 as of 2026-10)
+model = "openai/gpt-oss-120b"
 key = "groq"
-extra_body = { reasoning_effort = "none" }   # no thinking pass: faster, no leaked tags
+extra_body = { reasoning_effort = "low" }
 
 # Groq's free tier limits tokens per minute per model, so a second Groq model
 # doubles the headroom before falling back to Gemini or the local model.
 [routes.fast_alt]
 base_url = "https://api.groq.com/openai/v1"
-model = "openai/gpt-oss-120b"
+model = "qwen/qwen3.8-27b"
 key = "groq"
-extra_body = { reasoning_effort = "low" }
+extra_body = { reasoning_effort = "none" }   # no thinking pass: faster, no leaked tags
 
 [routes.reasoning]
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -59,7 +62,10 @@ most one short sentence before acting. Only a tool call does anything: \
 replying in words changes nothing on the laptop, so to act you must call the \
 tool, every time, even if a similar request came earlier. Never write tool \
 results yourself and never invent file names, paths or outcomes. Never claim an action worked unless the tool result says so; if it \
-failed or was declined, say so plainly. Delegate \
+failed or was declined, say so plainly. To save something the user asks you \
+to remember, call remember; saying "noted" saves nothing. Tools that need \
+permission ask the user themselves, so never ask "shall I?" first: call the \
+tool. Delegate \
 hard multi-step reasoning or planning to the "thinker" agent, and questions \
 about the user's own files that should stay private to the "private" agent.
 """

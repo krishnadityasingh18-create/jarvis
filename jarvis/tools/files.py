@@ -58,6 +58,7 @@ def _like(word: str) -> str:
 
 @tool("Find the user's files by name (every word must appear in the file name). "
       "Returns full paths, newest first. Cannot read file contents.",
+      describe=lambda a: f"search your files for '{a.get('query', '')}'",
       query="string: words from the file name", limit="?integer: how many, at most 20")
 def find_files(ctx, query, limit=10):
     words = query.lower().split()

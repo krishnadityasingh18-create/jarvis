@@ -158,3 +158,9 @@ async def test_agent_never_delegates_even_if_configured(cfg, conn):
     ctx = make_ctx(cfg, conn, agent="private", allowed=["delegate"])
     r = await run(ctx, call("delegate", agent="thinker", task="x"))
     assert "not available" in r and ctx.asked == []
+
+
+async def test_private_agent_search_question_is_readable(cfg, conn):
+    ctx = make_ctx(cfg, conn, answer=False, agent="private", allowed=["find_files"])
+    await run(ctx, call("find_files", query="motor"))
+    assert ctx.asked == ["The private agent wants to search your files for 'motor'. Allow, sir?"]

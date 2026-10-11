@@ -347,3 +347,17 @@ async def test_speech_drains_before_tool_runs(cfg, conn, monkeypatch):
         order.append(s)
     await brain.run_turn(cfg, conn, "x", "fast", noop_emit, speak)
     assert order == ["One moment, sir.", "tool", "Done."]
+
+
+def test_separator_glued_to_sentence():
+    sp = Splitter()
+    out = run(sp, "It ran, sir.---\n", "```\nhello\n```")
+    assert out == [("speak", "It ran, sir."), ("screen", "```\nhello\n```")]
+
+
+def test_escaped_separator_from_model():
+    # gpt-oss sometimes writes the two characters backslash-n instead of a newline
+    sp = Splitter()
+    out = run(sp, "Done, sir.---\\n```bash\\n", "hello\\n```")
+    assert out[0] == ("speak", "Done, sir.")
+    assert "".join(v for k, v in out[1:] if k == "screen") == "```bash\nhello\n```"
