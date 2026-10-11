@@ -6,12 +6,12 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from jarvis.notes import TEXT_EXT
 from jarvis.tools import tool
 from jarvis.tools.apps import _runs_code, hidden, inside_roots
 
 MAX_WRITE = 2**20
-WRITABLE = TEXT_EXT | {".json", ".csv", ".css", ".xml", ".log", ".bib", ""}
+# Notes and documents only: anything involving code goes to Claude Code (ask_claude).
+WRITABLE = {".md", ".txt", ".rst", ".tex", ".csv", ".log", ".bib"}
 
 def _trash(data_dir: Path) -> Path:
     """A fresh folder in the trash (data/trash) for one action's leftovers."""
@@ -44,7 +44,8 @@ def can_touch(path: str, cfg) -> Path:
 def _text_target(path: str, cfg) -> Path:
     p = can_touch(path, cfg)
     if _runs_code(p.name) or p.suffix.lower() not in WRITABLE:
-        raise ValueError(f"I only write plain-text files, not {p.suffix or 'that type'}")
+        raise ValueError(f"I only write notes and documents, not {p.suffix or 'that type'}; "
+                         "code, scripts and configs go to Claude Code through ask_claude")
     return p
 
 
