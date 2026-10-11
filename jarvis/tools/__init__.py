@@ -215,4 +215,4 @@ def undo_last(ctx):
     return "There is nothing recent to undo.", None
 
 
-from jarvis.tools import apps, claude, day, delegate, edit, files, memory, notes, web, windows  # noqa: E402,F401  (registers their tools)
+from jarvis.tools import apps, briefing, claude, day, delegate, edit, github, files, memory, notes, web, windows  # noqa: E402,F401  (registers their tools)
