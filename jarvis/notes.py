@@ -8,9 +8,9 @@ import numpy as np
 
 from jarvis import db
 
-TEXT_EXT = {".md", ".txt", ".rst", ".csv", ".tex", ".py", ".c", ".cpp", ".h", ".hpp", ".ino",
-            ".m", ".java", ".js", ".ts", ".html", ".css", ".sql", ".yaml", ".yml", ".toml",
-            ".ini", ".json"}
+# Notes and code. No .json/.csv/.css: in practice they're tool caches and datasets, not notes.
+TEXT_EXT = {".md", ".txt", ".rst", ".tex", ".py", ".c", ".cpp", ".h", ".hpp", ".ino", ".m",
+            ".java", ".js", ".ts", ".html", ".sql", ".yaml", ".yml", ".toml", ".ini"}
 DOC_EXT = TEXT_EXT | {".pdf", ".docx", ".pptx", ".ipynb"}
 MAX_PDF = 50 * 2**20
 MAX_OTHER = 2 * 2**20
@@ -72,6 +72,17 @@ def embed(texts: list[str], kind: str) -> np.ndarray | None:
     return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)
 
 
+def _minified(path: str) -> bool:
+    """Generated or minified text (one enormous line) is noise for answers."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            sample = f.read(65536)
+    except OSError:
+        return True
+    lines = sample.splitlines() or [""]
+    return max(map(len, lines)) > 3000 or len(sample) / len(lines) > 250
+
+
 def _walk(roots, exclude, skip):
     names = set(exclude)
     skip = [Path(s).resolve() for s in skip]
@@ -83,15 +94,18 @@ def _walk(roots, exclude, skip):
             dirnames[:] = [d for d in dirnames if d not in names]
             for f in filenames:
                 ext = os.path.splitext(f)[1].lower()
-                if ext not in DOC_EXT:
+                if ext not in DOC_EXT or f.startswith(("~$", ".~")):   # Office lock files
                     continue
                 p = os.path.join(dirpath, f)
                 try:
                     st = os.stat(p)
                 except OSError:
                     continue
-                if st.st_size <= (MAX_PDF if ext == ".pdf" else MAX_OTHER):
-                    yield p, st.st_mtime, st.st_size
+                if st.st_size > (MAX_PDF if ext == ".pdf" else MAX_OTHER):
+                    continue
+                if ext in TEXT_EXT and _minified(p):
+                    continue
+                yield p, st.st_mtime, st.st_size
 
 
 def index_contents(db_path, roots, exclude, embed=embed, skip=()) -> dict:

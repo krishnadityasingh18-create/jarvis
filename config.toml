@@ -115,5 +115,7 @@ exclude = [".venv", "venv", "node_modules", ".git", "AppData", "__pycache__",
            "site-packages", ".cache"]
 # Not worth reading for answers (tool and build clutter); still findable by name.
 content_exclude = ["My project", ".claude", ".vscode", ".platformio", ".codeium", ".pio",
-                   "Library", "build", "dist", ".idea"]
+                   "Library", "build", "dist", ".idea", ".matplotlib", ".ipython", ".nuget",
+                   ".dotnet", ".android", ".gradle", ".m2", ".npm", ".conda", "anaconda3",
+                   "miniconda3", "libraries"]
 content_private = true  # file contents only ever go to the local model

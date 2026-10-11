@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 
@@ -123,3 +124,18 @@ def test_search_without_vectors(tmp_path, cfg, conn):
     assert conn.execute("SELECT count(*) FROM chunks WHERE vec IS NULL").fetchone()[0] == 5 + 1
     hits = notes.search(conn, "inductor", k=3, embed=no_embed)
     assert hits[0]["path"].endswith("deck.pptx") and hits[0]["page"] == 1
+
+
+def test_index_skips_junk(tmp_path, cfg, conn):
+    home = tmp_path / "home"
+    make_docs(home)
+    n = home / "notes"
+    (n / "jquery.min.js").write_text("var a=1;" * 2000)            # minified: one huge line
+    (n / "app.js").write_text("function f() {\n  return 1;\n}\n")  # normal code: kept
+    (n / "~$resume.docx").write_bytes(b"lock file")               # Office lock file
+    (n / "data.json").write_text('{"a": 1}')
+    (n / "table.csv").write_text("a,b\n1,2\n")
+    index(tmp_path, cfg)
+    names = {Path(r[0]).name for r in conn.execute("SELECT path FROM docs")}
+    assert "app.js" in names
+    assert not names & {"jquery.min.js", "~$resume.docx", "data.json", "table.csv"}
