@@ -22,3 +22,5 @@ python-docx
 python-pptx
 ddgs
 trafilatura
+google-auth-oauthlib
+google-api-python-client
