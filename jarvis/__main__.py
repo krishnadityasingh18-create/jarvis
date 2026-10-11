@@ -59,9 +59,11 @@ def remote_cli(args: list[str]) -> None:
         print("Paste it into Vapi (Custom LLM -> API key) and n8n (Authorization: Bearer <token>):")
         print(token)
     elif args == ["tunnel"]:
-        exe = shutil.which("cloudflared")
+        local = load_config().db_path.parent / "bin" / "cloudflared.exe"   # no-install copy
+        exe = shutil.which("cloudflared") or (str(local) if local.exists() else None)
         if not exe:
-            raise SystemExit("Install cloudflared first: winget install Cloudflare.cloudflared")
+            raise SystemExit("Install cloudflared first: winget install Cloudflare.cloudflared "
+                             "(or put cloudflared.exe in data\\bin)")
         print("Starting a Cloudflare quick tunnel to JARVIS (Ctrl+C to stop). Use the "
               "https://....trycloudflare.com address it prints:")
         print("  Vapi Custom LLM URL:  <address>/v1      n8n webhook target: <address>/api/message")
