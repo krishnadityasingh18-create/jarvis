@@ -138,4 +138,4 @@ def undo_last(ctx):
     return "There is nothing to undo.", None
 
 
-from jarvis.tools import memory, windows  # noqa: E402,F401  (registers their tools)
+from jarvis.tools import apps, files, memory, windows  # noqa: E402,F401  (registers their tools)

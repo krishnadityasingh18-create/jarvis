@@ -21,8 +21,8 @@ def make_ctx(cfg, conn, answer=True, agent=None, allowed=None):
     return c
 
 
-def call(name, **args):
-    return {"id": "c1", "name": name, "arguments": json.dumps(args)}
+def call(tool_name, **args):
+    return {"id": "c1", "name": tool_name, "arguments": json.dumps(args)}
 
 
 @pytest.fixture
