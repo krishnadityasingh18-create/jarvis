@@ -228,6 +228,50 @@ motor-fault-detection".
 5. Run `.venv\Scripts\python -m jarvis accounts list` to check that it says
    "google: connected".
 
+## Phase 4: the away channel (phone and WhatsApp)
+
+The same JARVIS, with the same memory, plan and tools, answers on the phone
+(Vapi + Twilio) and on WhatsApp (your n8n workflow).
+
+- **Safety when you're away:** nothing can be approved from a phone or WhatsApp.
+  Anything with a side effect gets "that needs you at the desk", and Claude
+  Code isn't available remotely. Reading things works: the briefing, your plan,
+  your notes and the web.
+- **Locked down:** through a tunnel, the desk UI is unreachable. Only the two
+  remote endpoints answer, and only with your token. They're also limited to
+  30 requests a minute.
+- **Outbound:**
+  - "Call me about it": a call to your own number, no question asked.
+  - "Call +91… to …": reads the number and the purpose back first.
+  - "WhatsApp … that …": asks first. Nothing is ever sent unasked.
+
+### Setting up the away channel
+
+1. Run `.venv\Scripts\python -m jarvis remote token` and keep the token it
+   prints. Running it again replaces the token, and the old one stops working.
+2. Run `winget install Cloudflare.cloudflared`, then
+   `.venv\Scripts\python -m jarvis remote tunnel`. Copy the
+   `https://....trycloudflare.com` address. It changes each time the tunnel
+   starts; ngrok's free fixed domain is an alternative.
+3. **Vapi** (dashboard):
+   - Create an assistant with Model → **Custom LLM**, URL `<address>/v1`, and
+     the token as its key.
+   - Attach your Twilio number. Then put the ids into `[remote]` in
+     `config.toml` (`vapi_phone_id`, `vapi_assistant_id`, `my_number`).
+   - Run `.venv\Scripts\python -m jarvis keys set vapi_key` and paste your
+     Vapi **private** key.
+   - For calling other people, create a second, normal Vapi assistant and put
+     its id in `vapi_outbound_assistant_id`.
+   - Twilio trial accounts can only call verified numbers.
+4. **n8n:**
+   - In your WhatsApp workflow, add an HTTP Request node. Set it to POST
+     `<address>/api/message` with the header `Authorization: Bearer <token>`
+     and the body `{"text": "{{ $json.message }}"}`. Send `reply` back to the
+     sender.
+   - For JARVIS to send WhatsApp messages, add a webhook workflow that takes
+     `{"to", "text"}`. Put its URL in `whatsapp_webhook`; if it checks a token,
+     store it with `keys set n8n_token`.
+
 ## Cost
 
 ₹0 a month. Groq and Gemini are on free tiers, and Whisper, Kokoro and Ollama
