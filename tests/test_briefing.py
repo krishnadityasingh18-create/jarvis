@@ -60,3 +60,25 @@ async def test_github_activity_tool(cfg, conn, sources):
     r = await run(make_ctx(cfg, conn), call("github_activity"))
     assert "me/repo" in r and r.startswith('<untrusted source="github_activity">')
     assert TOOLS["github_activity"].readonly and TOOLS["daily_briefing"].readonly
+
+
+@pytest.mark.parametrize("text", ["brief me", "Give me my morning briefing.",
+                                  "what's my daily briefing?"])
+async def test_briefing_request_gathers_real_data_first(cfg, conn, sources, monkeypatch, text):
+    from jarvis import brain
+    from tests.test_brain import noop_emit, scripted
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), ("text", "Good morning, sir.")], seen=seen))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, text, "fast", noop_emit, speak)
+    msgs = seen[0]["messages"]
+    assert msgs[-2]["tool_calls"][0]["function"]["name"] == "daily_briefing"
+    assert "Weather:" in msgs[-1]["content"] and msgs[-1]["role"] == "tool"
+
+
+def test_not_a_briefing_request():
+    from jarvis import brain
+    assert not brain.wants_briefing("what is a debriefing in psychology")

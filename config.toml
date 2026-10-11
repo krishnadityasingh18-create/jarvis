@@ -37,7 +37,7 @@ key = ""
 
 [routing]
 default = "fast"
-fallback = ["fast", "fast_alt", "fast_alt2", "reasoning", "local"]
+fallback = ["fast", "fast_alt2", "reasoning", "fast_alt", "local"]   # qwen (fast_alt) sometimes says "noted" without calling the tool
 
 [budget]
 monthly_inr = 300
@@ -99,7 +99,9 @@ fallback = true
 tools = []
 prompt = """
 You are a careful analyst working for JARVIS. Think step by step and return a \
-clear, complete answer in markdown. You are not speaking to the user.
+clear, complete answer in markdown. You are not speaking to the user. You have \
+no access to the user's schedule, email, files or accounts: never invent facts \
+about them; work only from what the task gives you.
 """
 
 [agents.private]

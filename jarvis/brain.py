@@ -223,6 +223,13 @@ ON_SCREEN = "Claude's answer is on screen, sir."
 SPEAK_MAX = 400
 
 
+_BRIEFING = re.compile(r"\b(brief me|(morning|daily|today'?s) briefing)\b", re.IGNORECASE)
+
+
+def wants_briefing(text: str) -> bool:
+    return bool(_BRIEFING.search(text))
+
+
 def direct_claude_prompt(text: str) -> str | None:
     m = _DIRECT.match(text)
     return m.group("prompt").strip() if m else None
@@ -334,6 +341,15 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
     saved = False
     try:
         try:
+            if wants_briefing(user_text):
+                # gather the real data first: left to itself a model may delegate the
+                # briefing to an agent that has no data and invents one
+                result = await tools.run(ctx, {"id": "brief_0", "name": "daily_briefing",
+                                               "arguments": "{}"})
+                messages += [{"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "brief_0", "type": "function",
+                     "function": {"name": "daily_briefing", "arguments": "{}"}}]},
+                    {"role": "tool", "tool_call_id": "brief_0", "content": result}]
             await agent_loop(ctx, messages, ui_route, list(tools.TOOLS), on_event=on_event)
         except StreamBroken:
             await say(LOST)
