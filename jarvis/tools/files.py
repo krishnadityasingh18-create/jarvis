@@ -40,14 +40,21 @@ def start_indexer(cfg, on_banner) -> None:
             apps.APPS.update(apps.load_apps())
         except Exception as e:
             on_banner(f"App list unavailable ({e.__class__.__name__}); opening apps by name only")
-        warned = False
+        from jarvis import notes
+        warned = set()
         while True:
-            try:
-                build_index(cfg.db_path, cfg.file_roots, cfg.file_exclude)
-            except Exception as e:
-                if not warned:
-                    warned = True
-                    on_banner(f"File index failed ({e.__class__.__name__})")
+            for name, job in (
+                    ("File index", lambda: build_index(cfg.db_path, cfg.file_roots,
+                                                       cfg.file_exclude)),
+                    ("File content index", lambda: notes.index_contents(
+                        cfg.db_path, cfg.file_roots, cfg.file_exclude + cfg.content_exclude,
+                        skip=[cfg.app_dir]))):
+                try:
+                    job()
+                except Exception as e:
+                    if name not in warned:
+                        warned.add(name)
+                        on_banner(f"{name} failed ({e.__class__.__name__})")
             time.sleep(REFRESH_S)
     threading.Thread(target=loop, daemon=True).start()
 

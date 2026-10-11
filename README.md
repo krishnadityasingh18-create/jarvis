@@ -116,6 +116,55 @@ builds a filename index of your home folder in the background. That takes about
 8. "Ask the private agent which PDFs I have about motors." It asks before
    searching; confirm, and it answers using only the local model.
 
+## Phase 2b: your files' contents, reversible changes, and the web
+
+One-time setup:
+
+```
+.venv\Scripts\python -m pip install -r requirements.txt
+ollama pull nomic-embed-text
+ollama create jarvis-local -f Modelfile
+```
+
+- **Asking about your files:** JARVIS reads the contents of your notes, PDFs,
+  slides, Word documents, notebooks and code in your home folder, all indexed
+  locally in the background. The first pass takes a few minutes; after that only
+  changed files are re-read.
+  - Tool and build clutter is skipped (`content_exclude` in `config.toml`); those
+    files can still be found by name.
+  - **Privacy:** once JARVIS reads inside a file, the rest of that answer comes
+    from the local model only. Cloud models never see your file contents, and
+    later questions to cloud models see "[kept on this laptop]" instead. Set
+    `content_private = false` to allow cloud models.
+- **Changing files:** JARVIS can create files and folders, overwrite or edit text
+  files, and move, rename or delete anything in your home folder.
+  - **Nothing is permanent.** A deleted file, or the old version of an edited
+    one, goes to `data\trash`, and Undo puts it back. Only you empty the trash.
+  - Overwrite, edit, move and delete always ask first.
+  - JARVIS never changes its own folder, and never writes programs or scripts
+    (`.exe`, `.bat`, `.lnk`, …).
+- **Web:** web search (DuckDuckGo, no key needed) and page reading, including
+  online PDFs. Answers list their sources on screen. The `researcher` agent does
+  multi-page research.
+- **Prompt-injection guard:** web pages and files can contain instructions. After
+  JARVIS reads one, any action with a side effect needs your confirmation for
+  the rest of that turn.
+
+### Phase 2b demo
+
+1. "What do my notes say about Thevenin's theorem?" The answer is built from your
+   files, with the file and page shown on screen.
+2. "Summarise BEEE unit 5." It finds and reads the PDF and answers locally.
+3. "Create a file called todo.md on my Desktop with three study tasks." It's
+   created, and Actions shows Undo.
+4. "In todo.md, change three to four." It asks "Edit todo.md, sir?"; say yes,
+   then Undo restores the old version.
+5. "Delete todo.md." It asks, then moves the file to `data\trash`; Undo brings it
+   back.
+6. "Search the web for the ESP32-S3 datasheet." You get an answer with Sources.
+7. "Ask the researcher to compare buck and boost converter efficiency." You get a
+   researched answer with links.
+
 ## Cost
 
 ₹0 a month. Groq and Gemini are on free tiers, and Whisper, Kokoro and Ollama
