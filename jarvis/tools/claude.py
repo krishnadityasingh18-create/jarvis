@@ -3,11 +3,12 @@ with the user's standing boundaries, and the result is committed (undo = git rev
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
-from jarvis.tools import tool
+from jarvis.tools import MAX_RESULT, _record, tool
 from jarvis.tools.apps import hidden, inside_roots
 
 TIMEOUT_S = 20 * 60
@@ -92,12 +93,15 @@ def _head(repo: Path) -> str:
         return ""   # a repository with no commits yet
 
 
-def _work(repo: Path, task: str, holder: dict) -> str:
-    before = _head(repo)
+def _run(cwd: Path, prompt: str, holder: dict) -> tuple[str, bool, str, dict | None]:
+    """Run `claude -p` in cwd. Returns (Claude's exact reply, failed, commits, undo).
+    In a git project, changes Claude left uncommitted are committed too."""
+    repo = (cwd / ".git").exists()
+    before = _head(cwd) if repo else ""
     p = subprocess.Popen(
-        _command() + ["-p", task, "--output-format", "json",
+        _command() + ["-p", prompt, "--output-format", "json",
                       "--permission-mode", "bypassPermissions", "--append-system-prompt", RULES],
-        cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
+        cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
     holder["proc"] = p
     try:
         out, err = p.communicate(timeout=TIMEOUT_S)
@@ -107,21 +111,30 @@ def _work(repo: Path, task: str, holder: dict) -> str:
         out, err = b"", b"timed out after 20 minutes"
     try:
         data = json.loads(out.decode("utf-8", errors="replace"))
-        summary = str(data.get("result", "")).strip()
-        failed = bool(data.get("is_error"))
+        reply, failed = str(data.get("result", "")), bool(data.get("is_error"))
     except ValueError:
-        summary, failed = err.decode("utf-8", errors="replace").strip()[-500:], True
-    if _git(repo, "status", "--porcelain"):   # Claude left changes uncommitted
-        _git(repo, "add", "-A")
-        _git(repo, "commit", "-q", "-m", f"JARVIS: {task[:60]}")
-    after = _head(repo)
-    commits = _git(repo, "log", "--oneline", f"{before}..{after}") if before and after != before \
-        else (_git(repo, "log", "--oneline") if after and not before else "")
-    head = "Claude Code reported a problem.\n" if failed else ""
-    return head + (summary or "(no summary)") + (
-        f"\n\nCommits in {repo.name}:\n{commits}" if commits else "\n\nNo changes were made."), \
-        ({"kind": "git_revert", "repo": str(repo), "before": before, "after": after}
-         if commits and before else None)
+        reply, failed = err.decode("utf-8", errors="replace").strip()[-500:], True
+    if not repo:
+        return reply, failed, "", None
+    if _git(cwd, "status", "--porcelain"):   # Claude left changes uncommitted
+        _git(cwd, "add", "-A")
+        _git(cwd, "commit", "-q", "-m", f"JARVIS: {prompt[:60]}")
+    after = _head(cwd)
+    commits = (_git(cwd, "log", "--oneline", f"{before}..{after}") if before and after != before
+               else _git(cwd, "log", "--oneline") if after and not before else "")
+    undo_info = ({"kind": "git_revert", "repo": str(cwd), "before": before, "after": after}
+                 if commits and before else None)
+    return reply, failed, commits, undo_info
+
+
+async def _run_async(cwd: Path, prompt: str):
+    holder: dict = {}
+    try:
+        return await asyncio.to_thread(_run, cwd, prompt, holder)
+    except asyncio.CancelledError:
+        if holder.get("proc"):
+            holder["proc"].kill()   # the user moved on: stop Claude too
+        raise
 
 
 @tool("Hand any coding work to Claude Code: writing, changing, fixing, refactoring or "
@@ -134,13 +147,30 @@ def _work(repo: Path, task: str, holder: dict) -> str:
 async def ask_claude(ctx, task, project):
     repo = _repo(project, ctx.cfg)
     await ctx.emit({"type": "agent", "agent": "Claude"})
-    holder: dict = {}
-    try:
-        return await asyncio.to_thread(_work, repo, task, holder)
-    except asyncio.CancelledError:
-        if holder.get("proc"):
-            holder["proc"].kill()   # the user moved on: stop Claude too
-        raise
+    reply, failed, commits, undo_info = await _run_async(repo, task)
+    head = "Claude Code reported a problem.\n" if failed else ""
+    return head + (reply.strip() or "(no summary)") + (
+        f"\n\nCommits in {repo.name}:\n{commits}" if commits else "\n\nNo changes were made."), \
+        undo_info
+
+
+async def direct(ctx, prompt: str) -> str:
+    """The user's own "ask Claude ..." line: the prompt goes exactly as said, and Claude's
+    exact reply comes back. Runs in a project the prompt names, else a neutral workspace."""
+    named = [r for r in _repos(ctx.cfg)
+             if re.search(rf"(?<![\w-]){re.escape(r.name)}(?![\w-])", prompt, re.IGNORECASE)]
+    if len(named) == 1:
+        cwd = named[0]
+    else:
+        cwd = (ctx.cfg.db_path.parent / "claude").resolve()
+        cwd.mkdir(parents=True, exist_ok=True)
+    await ctx.emit({"type": "agent", "agent": "Claude"})
+    reply, failed, commits, undo_info = await _run_async(cwd, prompt)
+    note = f"\n\nCommits in {cwd.name}:\n{commits}" if commits else ""
+    await ctx.emit(_record(ctx, "ask_claude", {"task": prompt, "project": cwd.name},
+                           (reply + note)[:MAX_RESULT], "failed" if failed else "done",
+                           undo_info))
+    return reply
 
 
 def undo(u: dict) -> None:

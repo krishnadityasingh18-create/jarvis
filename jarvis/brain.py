@@ -215,6 +215,45 @@ def _places() -> str:
     return "The user's folders (use these exact paths): " + "; ".join(out) + "."
 
 
+# "ask Claude ..." (Whisper often hears "cloud"/"clawed"): a direct line, no model in between
+_DIRECT = re.compile(r"^\W*(?:hey\W+)?(?:jarvis\W+)?ask\s+(?:claude|cloud|clawed|claud|clod)\b"
+                     r"[\s,:;.\-]*(?P<prompt>\S.*)$", re.IGNORECASE | re.DOTALL)
+ON_SCREEN = "Claude's answer is on screen, sir."
+SPEAK_MAX = 400
+
+
+def direct_claude_prompt(text: str) -> str | None:
+    m = _DIRECT.match(text)
+    return m.group("prompt").strip() if m else None
+
+
+async def _direct_claude(cfg, conn, prompt: str, emit: Emit, speak: Speak) -> None:
+    """Send the prompt exactly as said; give back Claude's reply exactly as written. Short
+    plain replies are also read aloud word for word; code or long replies only on screen."""
+    from jarvis.tools import claude
+    ctx = tools.Ctx(cfg, conn, _refuse, emit)
+    try:
+        await emit({"type": "state", "state": "thinking"})
+        reply = (await claude.direct(ctx, prompt)).strip() or "(Claude returned nothing.)"
+        await emit({"type": "state", "state": "speaking"})
+        if len(reply) <= SPEAK_MAX and "```" not in reply:
+            await emit({"type": "spoken_sentence", "text": reply})
+            db.add_message(conn, "assistant", reply, "", "claude")
+            await speak(reply)
+        else:
+            await emit({"type": "screen_delta", "text": reply})
+            await emit({"type": "spoken_sentence", "text": ON_SCREEN})
+            db.add_message(conn, "assistant", ON_SCREEN, reply, "claude")
+            await speak(ON_SCREEN)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        await emit({"type": "banner", "text": f"Claude Code failed: {e}"})
+        await speak("Claude Code couldn't run, sir.")
+    finally:
+        await emit({"type": "turn_end"})
+
+
 async def _refuse(question: str) -> bool:
     return False
 
@@ -224,6 +263,8 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
                    confirm: Callable[[str], Awaitable[bool]] | None = None) -> None:
     global _warned_on
     db.add_message(conn, "user", user_text)
+    if (prompt := direct_claude_prompt(user_text)) is not None:
+        return await _direct_claude(cfg, conn, prompt, emit, speak)
     system = cfg.persona + "\n\n" + _places() + (f"\n\n{mb}" if (mb := memory_block(conn)) else "")
     messages = [{"role": "system", "content": system}] + _history(conn,
                                                                    redact=True)
