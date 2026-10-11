@@ -102,3 +102,59 @@ def test_make_client_uses_system_trust_store(cfg):
     import truststore
     c = llm.make_client(cfg.routes["fast"])
     assert isinstance(c._client._transport._pool._ssl_context, truststore.SSLContext)
+
+
+def tc_chunk(index=0, id=None, name=None, args=None):
+    call = NS(index=index, id=id, function=NS(name=name, arguments=args))
+    return NS(choices=[NS(delta=NS(content=None, tool_calls=[call]))], usage=None)
+
+
+def test_tool_call_assembled_from_split_deltas(cfg, conn):
+    chunks = [tc_chunk(0, "c1", "open_app", ""), tc_chunk(0, None, None, '{"na'),
+              tc_chunk(0, None, None, 'me":"x"}')]
+    out = list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": lambda **kw: iter(chunks)}),
+                            tools=[{"type": "function"}]))
+    assert out == [("route", "fast"),
+                   ("tool_calls", [{"id": "c1", "name": "open_app", "arguments": '{"name":"x"}'}])]
+
+
+def test_tool_call_missing_id_gets_one(cfg, conn):
+    chunks = [tc_chunk(None, None, "remember", '{"text":"a"}')]
+    out = list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": lambda **kw: iter(chunks)}),
+                            tools=[{"type": "function"}]))
+    (kind, calls), = out[1:]
+    assert kind == "tool_calls" and calls[0]["id"] and calls[0]["name"] == "remember"
+
+
+def test_tool_only_reply_is_started(cfg, conn):
+    seen = []
+    chunks = [tc_chunk(0, "c1", "list_windows", "{}")]
+
+    def fast(**kw):
+        seen.append("fast")
+        return iter(chunks)
+    out = list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": fast}), tools=[{}]))
+    assert out[0] == ("route", "fast") and out[1][0] == "tool_calls" and seen == ["fast"]
+
+
+def test_no_fallback_flag(cfg, conn):
+    called = []
+
+    def reasoning(**kw):
+        called.append("reasoning")
+        return iter([chunk("hi")])
+    with pytest.raises(AllRoutesFailed):
+        list(stream_reply(cfg, conn, MSGS, "fast", factory({"reasoning": reasoning}),
+                          fallback=False))
+    assert called == []
+
+
+def test_tools_not_sent_when_none(cfg, conn):
+    kws = []
+
+    def fast(**kw):
+        kws.append(kw)
+        return iter([chunk("hi")])
+    list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": fast})))
+    list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": fast}), tools=[{"x": 1}]))
+    assert "tools" not in kws[0] and kws[1]["tools"] == [{"x": 1}]
