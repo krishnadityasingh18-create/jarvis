@@ -151,3 +151,9 @@ def test_schemas_shape():
     s = tools.schemas(["remember"])
     assert s[0]["type"] == "function" and s[0]["function"]["name"] == "remember"
     assert "text" in s[0]["function"]["parameters"]["properties"]
+
+
+async def test_agent_never_delegates_even_if_configured(cfg, conn):
+    ctx = make_ctx(cfg, conn, agent="private", allowed=["delegate"])
+    r = await run(ctx, call("delegate", agent="thinker", task="x"))
+    assert "not available" in r and ctx.asked == []

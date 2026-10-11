@@ -4,8 +4,9 @@ import threading
 from collections.abc import Awaitable, Callable
 from datetime import date
 
-from jarvis import db
-from jarvis.llm import AllRoutesFailed, StreamBroken, stream_reply
+from jarvis import db, tools
+from jarvis.llm import StreamBroken, stream_reply
+from jarvis.tools.memory import memory_block
 
 Emit = Callable[[dict], Awaitable[None]]
 Speak = Callable[[str], Awaitable[None]]
@@ -13,7 +14,9 @@ Speak = Callable[[str], Awaitable[None]]
 LOST = "I lost the connection, sir."
 NO_MODEL = "I can't reach any model right now, sir."
 BUDGET = "Sir, we've used 80 percent of this month's budget."
+STOPPED = "I've stopped after five steps, sir."
 MAX_SPOKEN = 2
+MAX_STEPS = 5
 
 # A sentence ends at . ? ! followed by whitespace (so "3.5" never splits), or at a newline...
 _BOUNDARY = re.compile(r"[.?!](?=\s)|\n")
@@ -99,33 +102,98 @@ def _pump(gen, loop, q: asyncio.Queue, stop: threading.Event) -> None:
         put(e)
 
 
+async def _aiter(gen):
+    """Iterate a blocking generator without blocking the event loop; stops it on cancel."""
+    q: asyncio.Queue = asyncio.Queue()
+    stop = threading.Event()
+    threading.Thread(target=_pump, args=(gen, asyncio.get_running_loop(), q, stop),
+                     daemon=True).start()
+    try:
+        while (item := await q.get()) is not _END:
+            if isinstance(item, Exception):
+                raise item
+            yield item
+    finally:
+        stop.set()
+
+
 def _history(conn) -> list[dict]:
-    """Past turns as the model wrote them: spoken part, then --- and the screen detail."""
+    """Past turns as the model wrote them: spoken part, --- and the screen detail, actions."""
     out = []
     for m in db.recent_messages(conn, 20):
         content = m["content"] + ("\n---\n" + m["screen"] if m["screen"] else "")
+        if m.get("actions"):
+            content += f"\n(actions: {m['actions']})"
         if content.strip():
             out.append({"role": m["role"], "content": content})
     return out
 
 
+async def agent_loop(ctx: tools.Ctx, messages: list[dict], route: str, tool_names: list[str],
+                     fallback: bool = True, on_event=None) -> str:
+    """Up to MAX_STEPS model calls, running tool calls in between. Returns all text.
+
+    on_event(kind, value) is awaited for ("route", name), ("text", delta), ("step_end", None),
+    ("tools", None) just before tools run, and ("capped", None) when the step cap is hit.
+    """
+    async def ev(kind, value=None):
+        if on_event:
+            await on_event(kind, value)
+    texts = []
+    schemas = tools.schemas(tool_names) or None
+    for _ in range(MAX_STEPS):
+        step_text, calls = "", None
+        async for kind, value in _aiter(stream_reply(ctx.cfg, ctx.conn, messages, route,
+                                                     tools=schemas, fallback=fallback)):
+            if kind == "tool_calls":
+                calls = value
+                continue
+            if kind == "text":
+                step_text += value
+            await ev(kind, value)
+        texts.append(step_text)
+        await ev("step_end")
+        if not calls:
+            return "".join(texts).strip()
+        messages.append({"role": "assistant", "content": step_text, "tool_calls": [
+            {"id": c["id"], "type": "function",
+             "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
+            for c in calls]})
+        await ev("tools")
+        for c in calls:
+            messages.append({"role": "tool", "tool_call_id": c["id"],
+                             "content": await tools.run(ctx, c)})
+    await ev("capped")
+    return "".join(texts).strip() + "\n\n(Stopped after five steps.)"
+
+
+async def _refuse(question: str) -> bool:
+    return False
+
+
 async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: Speak,
-                   prepare: Callable[[str], None] | None = None) -> None:
+                   prepare: Callable[[str], None] | None = None,
+                   confirm: Callable[[str], Awaitable[bool]] | None = None) -> None:
     global _warned_on
     db.add_message(conn, "user", user_text)
-    messages = [{"role": "system", "content": cfg.persona}] + _history(conn)
+    system = cfg.persona + (f"\n\n{mb}" if (mb := memory_block(conn)) else "")
+    messages = [{"role": "system", "content": system}] + _history(conn)
+    ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit)
 
     spoken: list[str] = []
     screen: list[str] = []
     route = ""
     sentences: asyncio.Queue = asyncio.Queue()
     speaking_started = False
+    banner_shown = False
+    splitter = Splitter()
 
     async def speaker():
         while (s := await sentences.get()) is not None:
             await emit({"type": "spoken_sentence", "text": s})
             await speak(s)
             spoken.append(s)
+            sentences.task_done()
 
     async def say(s: str):
         nonlocal speaking_started
@@ -136,47 +204,51 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
             prepare(s)  # synthesise now, while earlier sentences are still playing
         sentences.put_nowait(s)
 
-    q: asyncio.Queue = asyncio.Queue()
-    stop = threading.Event()
-    threading.Thread(target=_pump, args=(stream_reply(cfg, conn, messages, ui_route),
-                                         asyncio.get_running_loop(), q, stop),
-                     daemon=True).start()
-    speaker_task = asyncio.create_task(speaker())
-    splitter = Splitter()
-    await emit({"type": "state", "state": "thinking"})
-    saved = False
-    try:
-        while (item := await q.get()) is not _END:
-            if isinstance(item, Exception):
-                if isinstance(item, StreamBroken):
-                    await say(LOST)
-                else:  # AllRoutesFailed, or anything unexpected from the stream
-                    await emit({"type": "banner", "text": str(item) or type(item).__name__})
-                    await say(NO_MODEL)
-                break
-            kind, value = item
-            if kind == "route":
-                route = value
-                await emit({"type": "route", "route": value})
-                if value != ui_route:
-                    await emit({"type": "banner",
-                                "text": f"{ui_route} unavailable, answered via {value}"})
-                continue
-            for k, v in splitter.feed(value):
-                if k == "speak":
-                    await say(v)
-                else:
-                    screen.append(v)
-                    await emit({"type": "screen_delta", "text": v})
-        for k, v in splitter.flush():
+    async def out(pieces):
+        for k, v in pieces:
             if k == "speak":
                 await say(v)
             else:
                 screen.append(v)
                 await emit({"type": "screen_delta", "text": v})
+
+    async def on_event(kind, value):
+        nonlocal route, splitter, speaking_started, banner_shown
+        if kind == "route":
+            route = value
+            await emit({"type": "route", "route": value})
+            if value != ui_route and not banner_shown:
+                banner_shown = True
+                await emit({"type": "banner",
+                            "text": f"{ui_route} unavailable, answered via {value}"})
+        elif kind == "text":
+            await out(splitter.feed(value))
+        elif kind == "step_end":
+            await out(splitter.flush())
+            spoken_so_far, splitter = splitter.spoken, Splitter()
+            splitter.spoken = spoken_so_far   # the two-sentence limit is per turn
+        elif kind == "tools":
+            await sentences.join()   # finish speaking before acting or asking to confirm
+            speaking_started = False
+        elif kind == "capped":
+            await say(STOPPED)
+
+    speaker_task = asyncio.create_task(speaker())
+    await emit({"type": "state", "state": "thinking"})
+    saved = False
+    try:
+        try:
+            await agent_loop(ctx, messages, ui_route, list(tools.TOOLS), on_event=on_event)
+        except StreamBroken:
+            await say(LOST)
+        except Exception as e:  # AllRoutesFailed, or anything unexpected
+            await emit({"type": "banner", "text": str(e) or type(e).__name__})
+            await say(NO_MODEL)
+        await out(splitter.flush())
         sentences.put_nowait(None)
         await speaker_task
-        db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route)
+        db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
+                       actions="; ".join(ctx.actions))
         saved = True
 
         if db.budget_state(db.month_spend_inr(conn), cfg.monthly_inr) != "ok" \
@@ -185,11 +257,10 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
             await emit({"type": "banner", "text": BUDGET})
             await speak(BUDGET)
     except asyncio.CancelledError:
-        stop.set()
         speaker_task.cancel()
         if not saved:
             db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
-                           interrupted=True)
+                           interrupted=True, actions="; ".join(ctx.actions))
         raise
     finally:
         await emit({"type": "turn_end"})

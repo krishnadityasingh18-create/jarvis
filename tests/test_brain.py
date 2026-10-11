@@ -152,7 +152,7 @@ async def test_history_includes_screen_detail_and_skips_empty(cfg, conn, monkeyp
     db.add_message(conn, "assistant", "", interrupted=True)
     seen = []
 
-    def fake(cfg, conn, messages, route):
+    def fake(cfg, conn, messages, route, **k):
         seen.extend(messages)
         return iter([("route", "fast"), ("text", "Ok.")])
     monkeypatch.setattr(brain, "stream_reply", fake)
@@ -213,3 +213,127 @@ async def test_sentences_prepared_as_they_arrive(cfg, conn, monkeypatch):
 
     await brain.run_turn(cfg, conn, "hi", "fast", noop_emit, speak, prepare=prepared.append)
     assert state["prepared_while_first_plays"] == ["First.", "Second."]
+
+
+def scripted(*steps, seen=None):
+    """A fake stream_reply that plays one list of events per call (one call per model step)."""
+    it = iter(steps)
+
+    def fake(cfg, conn, messages, route, **k):
+        if seen is not None:
+            seen.append({"messages": [dict(m) for m in messages], "route": route, **k})
+        return iter(next(it))
+    return fake
+
+
+def tc(name, **args):
+    import json
+    return ("tool_calls", [{"id": "c1", "name": name, "arguments": json.dumps(args)}])
+
+
+async def test_tool_step_then_text(cfg, conn, monkeypatch):
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), ("text", "Noted, sir.\n"), tc("remember", text="lab on Thursdays")],
+        [("route", "fast"), ("text", "I'll remember that, sir.")], seen=seen))
+    said = []
+
+    async def speak(s):
+        said.append(s)
+    await brain.run_turn(cfg, conn, "remember my lab is on Thursdays", "fast", noop_emit, speak)
+    assert [m["text"] for m in db.memories(conn)] == ["lab on Thursdays"]
+    assert said == ["Noted, sir.", "I'll remember that, sir."]
+    step2 = seen[1]["messages"]
+    assert step2[-2]["role"] == "assistant" and step2[-2]["tool_calls"][0]["function"]["name"] == "remember"
+    assert step2[-1] == {"role": "tool", "tool_call_id": "c1", "content": "Remembered as [1]."}
+    assert "remember" in db.recent_messages(conn)[-1]["actions"]
+    assert seen[0]["tools"] and seen[0]["route"] == "fast"
+
+
+async def test_five_step_cap_says_stopped(cfg, conn, monkeypatch):
+    monkeypatch.setattr(brain, "stream_reply",
+                        scripted(*[[("route", "fast"), tc("list_windows")]] * 5))
+    monkeypatch.setitem(__import__("jarvis.tools", fromlist=["TOOLS"]).TOOLS, "list_windows",
+                        __import__("jarvis.tools", fromlist=["Tool"]).Tool(
+                            "list_windows", lambda ctx: ("none", None), "x", {"type": "object"}))
+    said = []
+
+    async def speak(s):
+        said.append(s)
+    await brain.run_turn(cfg, conn, "loop", "fast", noop_emit, speak)
+    assert said == [brain.STOPPED]
+
+
+async def test_history_includes_actions_line(cfg, conn, monkeypatch):
+    db.add_message(conn, "assistant", "Opened it, sir.", actions="open_app chrome → done")
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted([("route", "fast"), ("text", "Ok.")],
+                                                        seen=seen))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "again", "fast", noop_emit, speak)
+    assert {"role": "assistant", "content": "Opened it, sir.\n(actions: open_app chrome → done)"} \
+        in seen[0]["messages"]
+
+
+async def test_memory_block_in_system_prompt(cfg, conn, monkeypatch):
+    db.add_memory(conn, "lab on Thursdays")
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted([("route", "fast"), ("text", "Ok.")],
+                                                        seen=seen))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "when is lab", "fast", noop_emit, speak)
+    assert "[1] lab on Thursdays" in seen[0]["messages"][0]["content"]
+
+
+async def test_delegate_runs_agent_with_its_route_and_no_fallback(cfg, conn, monkeypatch):
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), tc("delegate", agent="private", task="which PDFs about motors?")],
+        [("route", "local"), ("text", "You have motor.pdf.")],
+        [("route", "fast"), ("text", "You have one, sir.")], seen=seen))
+    events = []
+
+    async def emit(m):
+        events.append(m)
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "ask private", "fast", emit, speak)
+    agent_call = seen[1]
+    assert agent_call["route"] == "local" and agent_call["fallback"] is False
+    assert agent_call["messages"][0]["content"] == cfg.agents["private"].prompt
+    assert [t["function"]["name"] for t in agent_call["tools"]] == ["find_files", "open_path"]
+    assert seen[2]["messages"][-1]["content"] == "You have motor.pdf."
+    assert {"type": "agent", "agent": "private"} in events
+
+
+async def test_delegate_unknown_agent(cfg, conn, monkeypatch):
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), tc("delegate", agent="wizard", task="x")],
+        [("route", "fast"), ("text", "Sorry, sir.")], seen=seen))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "ask wizard", "fast", noop_emit, speak)
+    assert "no agent called wizard" in seen[1]["messages"][-1]["content"]
+
+
+async def test_speech_drains_before_tool_runs(cfg, conn, monkeypatch):
+    import asyncio
+    order = []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), ("text", "One moment, sir.\n"), tc("remember", text="x")],
+        [("route", "fast"), ("text", "Done.")]))
+    real_add = db.add_memory
+    monkeypatch.setattr(db, "add_memory", lambda c, t: (order.append("tool"), real_add(c, t))[1])
+
+    async def speak(s):
+        await asyncio.sleep(0.05)
+        order.append(s)
+    await brain.run_turn(cfg, conn, "x", "fast", noop_emit, speak)
+    assert order == ["One moment, sir.", "tool", "Done."]

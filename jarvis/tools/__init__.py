@@ -71,7 +71,7 @@ async def _log(ctx: Ctx, name: str, args: dict, result: str, status: str, undo) 
 
 async def run(ctx: Ctx, call: dict) -> str:
     name = call["name"]
-    if ctx.allowed is not None and name not in ctx.allowed:
+    if ctx.agent and (name == "delegate" or name not in (ctx.allowed or [])):  # one level deep
         return f"Error: {name} is not available to the {ctx.agent} agent."
     t = TOOLS.get(name)
     if t is None:
@@ -138,4 +138,4 @@ def undo_last(ctx):
     return "There is nothing to undo.", None
 
 
-from jarvis.tools import apps, files, memory, windows  # noqa: E402,F401  (registers their tools)
+from jarvis.tools import apps, delegate, files, memory, windows  # noqa: E402,F401  (registers their tools)
