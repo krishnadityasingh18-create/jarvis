@@ -14,6 +14,16 @@ CREATE TABLE IF NOT EXISTS actions (id INTEGER PRIMARY KEY, ts TEXT, tool TEXT, 
 CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY, ts TEXT, text TEXT);
 CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, name TEXT, mtime REAL);
 CREATE INDEX IF NOT EXISTS files_name ON files(name);
+CREATE TABLE IF NOT EXISTS docs (path TEXT PRIMARY KEY, mtime REAL, size INTEGER,
+  chunks INTEGER, error TEXT);
+CREATE TABLE IF NOT EXISTS chunks (id INTEGER PRIMARY KEY, path TEXT, page INTEGER, text TEXT,
+  vec BLOB);
+CREATE INDEX IF NOT EXISTS chunks_path ON chunks(path);
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, content='chunks', content_rowid='id');
+CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+  INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text); END;
+CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+  INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text); END;
 """
 
 
@@ -24,23 +34,28 @@ def connect(path: Path | str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")  # the file indexer writes from its own connection
     conn.executescript(SCHEMA)
-    if "actions" not in [r[1] for r in conn.execute("PRAGMA table_info(messages)")]:
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(messages)")]
+    if "actions" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN actions TEXT DEFAULT ''")
+    if "private" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN private INTEGER DEFAULT 0")
     return conn
 
 
 def add_message(conn, role: str, content: str, screen: str = "", route: str = "",
-                interrupted: bool = False, actions: str = "") -> int:
+                interrupted: bool = False, actions: str = "", private: bool = False) -> int:
     cur = conn.execute(
-        "INSERT INTO messages(ts,role,content,screen,route,interrupted,actions) "
-        "VALUES(?,?,?,?,?,?,?)",
-        (datetime.now().isoformat(), role, content, screen, route, int(interrupted), actions))
+        "INSERT INTO messages(ts,role,content,screen,route,interrupted,actions,private) "
+        "VALUES(?,?,?,?,?,?,?,?)",
+        (datetime.now().isoformat(), role, content, screen, route, int(interrupted), actions,
+         int(private)))
     return cur.lastrowid
 
 
 def recent_messages(conn, n: int = 20) -> list[dict]:
     rows = conn.execute(
-        "SELECT role,content,screen,route,interrupted,actions FROM messages ORDER BY id DESC LIMIT ?",
+        "SELECT role,content,screen,route,interrupted,actions,private FROM messages "
+        "ORDER BY id DESC LIMIT ?",
         (n,)).fetchall()
     return [dict(r) for r in reversed(rows)]
 

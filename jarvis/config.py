@@ -45,6 +45,9 @@ class Config:
     agents: dict[str, Agent]
     file_roots: list[Path]
     file_exclude: list[str]
+    content_exclude: list[str] = field(default_factory=list)
+    content_private: bool = True
+    app_dir: Path = Path(__file__).resolve().parents[1]   # the JARVIS folder: never written to
 
 
 def load_config(path: Path = Path("config.toml")) -> Config:
@@ -68,6 +71,8 @@ def load_config(path: Path = Path("config.toml")) -> Config:
                 for n, a in t["agents"].items()},
         file_roots=[Path(r).expanduser() for r in t["files"]["roots"]],
         file_exclude=t["files"]["exclude"],
+        content_exclude=t["files"].get("content_exclude", []),
+        content_private=t["files"].get("content_private", True),
     )
 
 

@@ -82,3 +82,20 @@ def test_old_db_gets_actions_column(tmp_path):
     c = db.connect(p)
     cols = [r[1] for r in c.execute("PRAGMA table_info(messages)")]
     assert "actions" in cols
+
+
+def test_chunks_fts_sync(conn):
+    conn.execute("INSERT INTO chunks(path,page,text) VALUES('a.md',0,'buck converter duty cycle')")
+    conn.execute("INSERT INTO chunks(path,page,text) VALUES('b.md',0,'boost converter')")
+    n = lambda q: conn.execute("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?",
+                               (q,)).fetchone()[0]
+    assert n("converter") == 2 and n("buck") == 1
+    conn.execute("DELETE FROM chunks WHERE path='a.md'")
+    assert n("converter") == 1 and n("buck") == 0
+
+
+def test_message_private_flag(conn):
+    db.add_message(conn, "assistant", "about your notes", private=True)
+    db.add_message(conn, "assistant", "public")
+    rows = db.recent_messages(conn)
+    assert [r["private"] for r in rows] == [1, 0]

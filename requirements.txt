@@ -17,3 +17,8 @@ onnxruntime-gpu==1.23.2   # CUDA 12 build; 1.24+ needs CUDA 13, which Whisper do
 nvidia-cuda-runtime-cu12
 nvidia-cufft-cu12
 nvidia-curand-cu12
+pymupdf
+python-docx
+python-pptx
+ddgs
+trafilatura
