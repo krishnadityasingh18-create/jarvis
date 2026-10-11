@@ -47,7 +47,7 @@ async def test_tasks_add_complete_undo(cfg, conn):
     await run(ctx, call("complete_task", task_id=tid))
     assert "Lab report" not in await run(ctx, call("list_tasks"))
     undo(conn, [a for a in db.recent_actions(conn) if a["tool"] == "complete_task"][0]["id"])
-    assert "Lab report (due Wed 15 Oct)" in await run(ctx, call("list_tasks"))
+    assert "Lab report (due Thu 15 Oct)" in await run(ctx, call("list_tasks"))
     undo(conn, [a for a in db.recent_actions(conn) if a["tool"] == "add_task"][0]["id"])
     assert conn.execute("SELECT count(*) FROM tasks").fetchone()[0] == 0
 
