@@ -3,7 +3,7 @@ from pathlib import Path
 
 from jarvis import notes
 from jarvis.tools import tool
-from jarvis.tools.apps import inside_roots
+from jarvis.tools.apps import hidden, inside_roots
 
 READ_CHARS = 6000
 
@@ -34,6 +34,8 @@ def read_file(ctx, path, page=1):
     if not p.is_absolute() or not inside_roots(p, ctx.cfg.file_roots, ctx.cfg.file_exclude):
         raise ValueError("that file is outside the folders I'm allowed to read")
     p = p.resolve()
+    if hidden(p, ctx.cfg.file_roots):
+        raise ValueError("I don't read hidden files or folders (credentials and settings)")
     if not p.is_file():
         raise ValueError("that file does not exist")
     pages = notes.extract(p) or [(1, "")]

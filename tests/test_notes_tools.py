@@ -81,7 +81,7 @@ async def test_history_redacts_private_turns_for_cloud(cfg, conn, monkeypatch):
     db.add_message(conn, "user", "what do my notes say")
     db.add_message(conn, "assistant", "They say the secret plan.", private=True, actions=json.dumps(
         [{"name": "search_notes", "arguments": "{}", "result": "secret passage"}]))
-    for route, visible in (("fast", False), ("local", True)):
+    for route, visible in (("fast", False), ("local", False)):
         seen = []
         monkeypatch.setattr(brain, "stream_reply",
                             scripted([("route", route), ("text", "Ok.")], seen=seen))
@@ -154,3 +154,60 @@ async def test_private_switch_is_not_reported_as_an_outage(cfg, conn, indexed, m
         pass
     await brain.run_turn(cfg, conn, "notes on buck", "fast", emit, speak)
     assert not [e for e in events if e["type"] == "banner"]
+
+
+async def test_private_turn_refuses_network_and_cloud_agents(cfg, conn):
+    ctx = make_ctx(cfg, conn)
+    ctx.private = True
+    for c in (call("web_search", query="x"), call("read_page", url="https://example.com/?d=x"),
+              call("delegate", agent="thinker", task="analyse: TOPSECRET"),
+              call("delegate", agent="researcher", task="x"),
+              call("remember", text="TOPSECRET from a file")):
+        r = await run(ctx, c)
+        assert r.startswith("Error") and "private" in r, c["name"]
+    assert ctx.asked == [] and db.memories(conn) == []
+
+
+async def test_private_agent_still_allowed_in_private_turn(cfg, conn, monkeypatch):
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "local"), ("text", "done")], seen=seen))
+    ctx = make_ctx(cfg, conn)
+    ctx.private = True
+    r = await run(ctx, call("delegate", agent="private", task="x"))
+    assert r == "done" and seen[0]["route"] == "local" and seen[0]["fallback"] is False
+
+
+async def test_delegate_child_inherits_privacy(cfg, conn, monkeypatch):
+    cfg.agents["private"].tools = ["web_search"]
+    ctx = make_ctx(cfg, conn)
+    ctx.private = True
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "local"), tc("web_search", query="leak")], [("route", "local"), ("text", "ok")]))
+    await run(ctx, call("delegate", agent="private", task="x"))
+    assert not [a for a in db.recent_actions(conn) if a["tool"] == "web_search"
+                and a["status"] == "done"]
+
+
+async def test_read_file_refuses_hidden_files(cfg, conn, indexed):
+    (indexed / ".git-credentials").write_text("https://user:token@github.com")
+    (indexed / ".ssh").mkdir()
+    (indexed / ".ssh" / "config").write_text("Host x")
+    for p in (indexed / ".git-credentials", indexed / ".ssh" / "config"):
+        r = await run(make_ctx(cfg, conn), call("read_file", path=str(p)))
+        assert r.startswith("Error") and "token" not in r
+
+
+async def test_history_redacts_private_tool_arguments(cfg, conn, monkeypatch):
+    db.add_message(conn, "user", "summarise my notes into a file")
+    db.add_message(conn, "assistant", "Done.", private=True, actions=json.dumps(
+        [{"name": "create_file", "arguments": json.dumps({"path": "x", "content": "SECRET sum"}),
+          "result": "Created x."}]))
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted([("route", "fast"), ("text", "Ok.")],
+                                                        seen=seen))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "and?", "fast", noop_emit, speak)
+    assert "SECRET" not in json.dumps(seen[0]["messages"])

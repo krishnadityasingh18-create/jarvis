@@ -25,6 +25,7 @@ class Tool:
     readonly: bool = False    # changes nothing: never needs confirming, even in a tainted turn
     private: bool = False     # returns file contents: the rest of the turn stays on `local`
     untrusted: bool = False   # returns outside text that may carry instructions: taints the turn
+    exports: bool = False     # its input leaves the laptop (internet, or cloud prompts)
     limit: int = MAX_RESULT   # result size cap (characters)
 
 
@@ -46,6 +47,7 @@ TOOLS: dict[str, Tool] = {}
 
 def tool(description: str, confirm: bool = False, describe=None, readonly: bool = False,
          private: bool = False, untrusted: bool = False, max_chars: int = MAX_RESULT,
+         exports: bool = False,
          **params: str):
     """Register fn as a tool. params: name="type: description"; a leading '?' makes it optional."""
     def wrap(fn):
@@ -58,7 +60,9 @@ def tool(description: str, confirm: bool = False, describe=None, readonly: bool 
                 required.append(name)
         TOOLS[fn.__name__] = Tool(fn.__name__, fn, description,
                                   {"type": "object", "properties": props, "required": required},
-                                  confirm, describe, readonly, private, untrusted, max_chars)
+                                  confirm=confirm, describe=describe, readonly=readonly,
+                                  private=private, untrusted=untrusted, exports=exports,
+                                  limit=max_chars)
         return fn
     return wrap
 
@@ -94,6 +98,13 @@ def _outcome(fut: asyncio.Future, limit: int = MAX_RESULT) -> tuple[str, str, di
     return str(result)[:limit], "done", undo_info
 
 
+def _exports(ctx: Ctx, t: Tool, args: dict) -> bool:
+    if t.name == "delegate":   # only an agent pinned to the local model may see private text
+        a = ctx.cfg.agents.get(str(args.get("agent")))
+        return not (a and a.route == "local" and not a.fallback)
+    return t.exports
+
+
 async def run(ctx: Ctx, call: dict) -> str:
     name = call["name"]
     if ctx.agent and (name == "delegate" or name not in (ctx.allowed or [])):  # one level deep
@@ -108,6 +119,10 @@ async def run(ctx: Ctx, call: dict) -> str:
         return "Error: the tool arguments were not valid JSON."
     # Sub-agents and tainted turns ask before anything that changes something; looking
     # (search, read) doesn't ask: a researcher asking before every search was unusable.
+    if ctx.private and ctx.cfg.content_private and _exports(ctx, t, args):
+        return (f"Error: this request used the user's private files, so {name} can't run in "
+                "it: nothing from it may reach the internet or cloud models. The user can ask "
+                "for that separately.")
     if t.confirm or ((ctx.agent or ctx.tainted) and not t.readonly):
         try:  # describe may resolve the target (e.g. the window) and fail before we ask
             phrase = t.describe(args) if t.describe else f"run {name} {_short(args)}".strip()

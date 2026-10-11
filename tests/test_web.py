@@ -100,3 +100,11 @@ async def test_web_search_drops_ads(cfg, conn, monkeypatch):
     monkeypatch.setattr(web, "DDGS", AdDDGS)
     r = await run(make_ctx(cfg, conn), call("web_search", query="x"))
     assert "aclick" not in r and "[1] Real" in r
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1:8765\\@example.com/",
+                                 "http://user@example.com/", "http://a:b@example.com/"])
+async def test_backslash_and_userinfo_urls_refused(cfg, conn, monkeypatch, public_dns, url):
+    monkeypatch.setattr(web, "_client", client_returning(page(body=SECRET)))
+    r = await run(make_ctx(cfg, conn), call("read_page", url=url))
+    assert r.startswith("Error") and "secret" not in r

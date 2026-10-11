@@ -22,6 +22,10 @@ def _safe_url(url: str) -> str:
     u = urlparse(url)
     if u.scheme not in ("http", "https") or not u.hostname:
         raise ValueError("only http and https web addresses")
+    # browsers (and primp) treat \ as /, so "http://127.0.0.1\@example.com" really goes to
+    # 127.0.0.1 while urlparse sees example.com; user@host is never needed either
+    if "\\" in url or u.username or u.password:
+        raise ValueError("that web address has a disguised host")
     try:
         ips = [ipaddress.ip_address(u.hostname)]   # a literal address needs no DNS
     except ValueError:
@@ -50,7 +54,7 @@ def _fetch(url: str):
 
 
 @tool("Search the web. Returns numbered results with title, URL and snippet.", readonly=True,
-      untrusted=True, query="string: what to search for", n="?integer: results, at most 8")
+      untrusted=True, exports=True, query="string: what to search for", n="?integer: results, at most 8")
 def web_search(ctx, query, n=5):
     n = max(1, min(int(n), 8))
     results = [r for r in DDGS().text(query, max_results=n + 2)
@@ -62,6 +66,7 @@ def web_search(ctx, query, n=5):
 
 
 @tool("Read a web page or online PDF and return its main text.", readonly=True, untrusted=True,
+      exports=True,
       max_chars=PAGE_CHARS + 600, url="string: the page's full http(s) address")
 def read_page(ctx, url):
     r, final = _fetch(url)

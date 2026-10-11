@@ -3,6 +3,7 @@ from jarvis.tools import tool
 
 
 @tool("Save a fact the user asked you to remember. It stays across restarts.",
+      exports=True,   # memories go into every prompt, cloud models included
       text="string: the fact, in one short sentence")
 def remember(ctx, text):
     mid = db.add_memory(ctx.conn, text)

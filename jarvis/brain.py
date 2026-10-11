@@ -142,7 +142,8 @@ def _history(conn, redact: bool = False) -> list[dict]:
             ids = [f"h{n}_{i}" for i in range(len(acts))]
             out.append({"role": "assistant", "content": "", "tool_calls": [
                 {"id": i, "type": "function",
-                 "function": {"name": a["name"], "arguments": a["arguments"]}}
+                 "function": {"name": a["name"],
+                              "arguments": "{}" if hide else a["arguments"]}}
                 for i, a in zip(ids, acts)]})
             out += [{"role": "tool", "tool_call_id": i,
                      "content": REDACTED if hide else a["result"]}
@@ -225,7 +226,7 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
     db.add_message(conn, "user", user_text)
     system = cfg.persona + "\n\n" + _places() + (f"\n\n{mb}" if (mb := memory_block(conn)) else "")
     messages = [{"role": "system", "content": system}] + _history(conn,
-                                                                   redact=ui_route != "local")
+                                                                   redact=True)
     ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit)
 
     spoken: list[str] = []

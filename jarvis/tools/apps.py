@@ -72,6 +72,17 @@ def open_app(ctx, name):
     return _opened("shell:AppsFolder\\" + app_id, label)
 
 
+def hidden(path: Path, roots: list[Path]) -> bool:
+    """Inside a dot-folder or a dotfile under a root (.ssh, .gitconfig, .claude...): where
+    credentials and config that runs code live."""
+    p = path.resolve()
+    for r in roots:
+        r = r.resolve()
+        if p.is_relative_to(r):
+            return any(part.startswith(".") for part in p.relative_to(r).parts)
+    return False
+
+
 def inside_roots(path: Path, roots: list[Path], exclude: list[str] = ()) -> bool:
     p = path.resolve()
     for r in roots:

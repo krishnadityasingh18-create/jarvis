@@ -1,5 +1,6 @@
 """Changing the user's files, always reversibly: replaced and deleted things go to the
 JARVIS trash (data/trash), which only the user empties. Nothing here is permanent."""
+import os
 import shutil
 import uuid
 from datetime import datetime
@@ -7,7 +8,7 @@ from pathlib import Path
 
 from jarvis.notes import TEXT_EXT
 from jarvis.tools import tool
-from jarvis.tools.apps import _runs_code, inside_roots
+from jarvis.tools.apps import _runs_code, hidden, inside_roots
 
 MAX_WRITE = 2**20
 WRITABLE = TEXT_EXT | {".json", ".csv", ".css", ".xml", ".log", ".bib", ""}
@@ -25,9 +26,15 @@ def can_touch(path: str, cfg) -> Path:
     p = Path(path).expanduser()
     if not p.is_absolute():
         raise ValueError("give the full path")
+    # Windows drops trailing dots and spaces ("evil.bat." becomes evil.bat) and reads ":" as
+    # an alternate data stream, so names like that would slip past the type checks
+    if any(part != part.rstrip(". ") or ":" in part for part in p.parts[1:]):
+        raise ValueError("that name ends in a dot or space or contains ':'")
     p = p.resolve()
     if not inside_roots(p, cfg.file_roots, cfg.file_exclude):
         raise ValueError("that path is outside the folders I may change")
+    if hidden(p, cfg.file_roots):
+        raise ValueError("I don't change hidden files or folders (settings that can run code)")
     for protected in (Path(cfg.app_dir).resolve(), (cfg.db_path.parent / "trash").resolve()):
         if p.is_relative_to(protected):
             raise ValueError("I don't change my own files or my trash")
@@ -44,6 +51,16 @@ def _text_target(path: str, cfg) -> Path:
 def _check_size(content: str) -> None:
     if len(content.encode("utf-8")) > MAX_WRITE:
         raise ValueError("that is more than 1 MB of text")
+
+
+def _rename(src, dst) -> None:
+    """All-or-nothing: a plain rename never half-moves a folder (shutil.move falls back to
+    copy-then-delete, which leaves a gutted folder when one file inside is open)."""
+    try:
+        os.rename(src, dst)
+    except OSError as e:
+        raise ValueError(f"{Path(src).name} (or something in it) is open or locked; nothing "
+                         f"was changed ({e.__class__.__name__})") from None
 
 
 def _backup(p: Path, cfg) -> str:
@@ -129,7 +146,7 @@ def move_path(ctx, src, dst):
     if _runs_code(d.name) and d.suffix.lower() != s.suffix.lower():
         raise ValueError("I won't rename a file into a program or script type")
     d.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(s, d)
+    _rename(s, d)
     return f"Moved {s} to {d}.", {"kind": "move_back", "src": str(s), "dst": str(d)}
 
 
@@ -142,7 +159,7 @@ def delete_path(ctx, path):
     if not p.exists():
         raise ValueError("there is nothing at that path")
     where = _trash(ctx.cfg.db_path.parent) / p.name
-    shutil.move(p, where)
+    _rename(p, where)
     return f"Moved {p} to the JARVIS trash.", {"kind": "restore", "path": str(p),
                                                "from": str(where)}
 
@@ -156,10 +173,12 @@ def undo(u: dict, data_dir: Path) -> None:
     kind, p = u["kind"], Path(u.get("path") or u.get("src"))
     if kind == "to_trash":       # undo create_file
         if p.exists():
-            shutil.move(p, _trash(data_dir) / p.name)
+            _rename(p, _trash(data_dir) / p.name)
     elif kind == "restore_version":
+        if not Path(u["backup"]).exists():
+            raise ValueError("the old version is no longer in the trash")
         if p.exists():
-            shutil.move(p, _trash(data_dir) / p.name)   # keep the newer version too
+            _rename(p, _trash(data_dir) / p.name)   # keep the newer version too
         shutil.copy2(u["backup"], p)
     elif kind == "remove_dirs":
         top = Path(u["top"])
@@ -170,11 +189,11 @@ def undo(u: dict, data_dir: Path) -> None:
         _free(p)
         if not Path(u["dst"]).exists():
             raise ValueError("it's no longer where I moved it")
-        shutil.move(u["dst"], p)
+        _rename(u["dst"], p)
     elif kind == "restore":
         _free(p)
         p.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(u["from"], p)
+        _rename(u["from"], p)
 
 
 KINDS = {"to_trash", "restore_version", "remove_dirs", "move_back", "restore"}

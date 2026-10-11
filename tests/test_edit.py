@@ -134,3 +134,51 @@ async def test_move_cannot_rename_into_a_program(cfg, conn, home):
 def test_confirm_flags():
     assert all(TOOLS[n].confirm for n in ("write_file", "edit_file", "move_path", "delete_path"))
     assert not TOOLS["create_folder"].confirm
+
+
+@pytest.mark.parametrize("name", ["evil.bat.", "evil.bat ", "notes.txt:evil.exe", "a.cmd. ."])
+async def test_trailing_dots_spaces_and_streams_refused(cfg, conn, home, name):
+    r = await run(make_ctx(cfg, conn), call("create_file", path=str(home) + "\\" + name,
+                                            content="calc"))
+    assert r.startswith("Error")
+    assert not any(p.suffix.lower() in (".bat", ".cmd", ".exe") for p in home.iterdir())
+
+
+async def test_move_to_trailing_dot_program_refused(cfg, conn, home):
+    (home / "notes" / "a.txt").write_text("x")
+    r = await run(make_ctx(cfg, conn), call("move_path", src=str(home / "notes" / "a.txt"),
+                                            dst=str(home / "notes") + "\\a.cmd."))
+    assert r.startswith("Error") and (home / "notes" / "a.txt").exists()
+
+
+async def test_delete_folder_with_open_file_changes_nothing(cfg, conn, home):
+    d = home / "notes" / "proj"
+    d.mkdir()
+    for i in range(3):
+        (d / f"f{i}.txt").write_text(str(i))
+    held = open(d / "f1.txt")
+    try:
+        r = await run(make_ctx(cfg, conn), call("delete_path", path=str(d)))
+    finally:
+        held.close()
+    assert r.startswith("Error") and "open" in r
+    assert sorted(p.name for p in d.iterdir()) == ["f0.txt", "f1.txt", "f2.txt"]
+    assert trash_files(cfg) == []
+
+
+async def test_undo_edit_with_backup_gone_keeps_the_file(cfg, conn, home):
+    import shutil
+    p = home / "notes" / "x.md"
+    p.write_text("old")
+    await run(make_ctx(cfg, conn), call("write_file", path=str(p), content="new"))
+    shutil.rmtree(cfg.db_path.parent / "trash")              # the user emptied the trash
+    with pytest.raises(ValueError):
+        undo(conn, last(conn)["id"])
+    assert p.read_text() == "new"
+
+
+@pytest.mark.parametrize("rel", [".claude/settings.json", ".gitconfig", ".ssh/config",
+                                 ".vscode/tasks.json"])
+async def test_no_writes_in_hidden_config(cfg, conn, home, rel):
+    r = await run(make_ctx(cfg, conn), call("create_file", path=str(home / rel), content="x"))
+    assert r.startswith("Error") and not (home / rel).exists()
