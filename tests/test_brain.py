@@ -316,7 +316,7 @@ async def test_delegate_runs_agent_with_its_route_and_no_fallback(cfg, conn, mon
     agent_call = seen[1]
     assert agent_call["route"] == "local" and agent_call["fallback"] is False
     assert agent_call["messages"][0]["content"] == cfg.agents["private"].prompt
-    assert [t["function"]["name"] for t in agent_call["tools"]] == ["find_files", "open_path"]
+    assert [t["function"]["name"] for t in agent_call["tools"]] == cfg.agents["private"].tools
     assert seen[2]["messages"][-1]["content"] == "You have motor.pdf."
     assert {"type": "agent", "agent": "private"} in events
 

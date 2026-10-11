@@ -14,6 +14,8 @@ Speak = Callable[[str], Awaitable[None]]
 
 LOST = "I lost the connection, sir."
 NO_MODEL = "I can't reach any model right now, sir."
+NO_LOCAL = "I can't reach the local model, sir, and your files stay on this laptop."
+REDACTED = "[answer about the user's files, kept on this laptop]"
 BUDGET = "Sir, we've used 80 percent of this month's budget."
 STOPPED = "I've stopped after five steps, sir."
 MAX_SPOKEN = 2
@@ -126,12 +128,14 @@ async def _aiter(gen):
         stop.set()
 
 
-def _history(conn) -> list[dict]:
+def _history(conn, redact: bool = False) -> list[dict]:
     """Past turns as the model wrote them: tool calls and results, then the spoken part,
     --- and the screen detail. Actions go back as real tool messages: a text summary gets
-    imitated ("(actions: done)") instead of the tools being called again."""
+    imitated ("(actions: done)") instead of the tools being called again.
+    redact: hide what private turns read and said (for any route but `local`)."""
     out = []
     for n, m in enumerate(db.recent_messages(conn, 20)):
+        hide = redact and m.get("private")
         acts = json.loads(m["actions"]) if (m.get("actions") or "").startswith("[") else []
         if acts:
             ids = [f"h{n}_{i}" for i in range(len(acts))]
@@ -139,9 +143,12 @@ def _history(conn) -> list[dict]:
                 {"id": i, "type": "function",
                  "function": {"name": a["name"], "arguments": a["arguments"]}}
                 for i, a in zip(ids, acts)]})
-            out += [{"role": "tool", "tool_call_id": i, "content": a["result"]}
+            out += [{"role": "tool", "tool_call_id": i,
+                     "content": REDACTED if hide else a["result"]}
                     for i, a in zip(ids, acts)]
         content = m["content"] + ("\n---\n" + m["screen"] if m["screen"] else "")
+        if hide and content.strip():
+            content = REDACTED
         if content.strip():
             out.append({"role": m["role"], "content": content})
     while out and out[0]["role"] != "user":  # Gemini rejects a tool call not after a user turn
@@ -163,8 +170,10 @@ async def agent_loop(ctx: tools.Ctx, messages: list[dict], route: str, tool_name
     schemas = tools.schemas(tool_names) or None
     for _ in range(MAX_STEPS):
         step_text, calls = "", None
-        async for kind, value in _aiter(stream_reply(ctx.cfg, ctx.conn, messages, route,
-                                                     tools=schemas, fallback=fallback)):
+        # once file contents were read this turn, only the local model sees the rest of it
+        step_route, step_fallback = ("local", False) if ctx.private else (route, fallback)
+        async for kind, value in _aiter(stream_reply(ctx.cfg, ctx.conn, messages, step_route,
+                                                     tools=schemas, fallback=step_fallback)):
             if kind == "tool_calls":
                 calls = value
                 continue
@@ -197,7 +206,8 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
     global _warned_on
     db.add_message(conn, "user", user_text)
     system = cfg.persona + (f"\n\n{mb}" if (mb := memory_block(conn)) else "")
-    messages = [{"role": "system", "content": system}] + _history(conn)
+    messages = [{"role": "system", "content": system}] + _history(conn,
+                                                                   redact=ui_route != "local")
     ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit)
 
     spoken: list[str] = []
@@ -263,12 +273,13 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
             await say(LOST)
         except Exception as e:  # AllRoutesFailed, or anything unexpected
             await emit({"type": "banner", "text": str(e) or type(e).__name__})
-            await say(NO_MODEL)
+            await say(NO_LOCAL if ctx.private else NO_MODEL)
         await out(splitter.flush())
         sentences.put_nowait(None)
         await speaker_task
         db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
-                       actions=json.dumps(ctx.actions) if ctx.actions else "")
+                       actions=json.dumps(ctx.actions) if ctx.actions else "",
+                       private=ctx.private)
         saved = True
 
         if db.budget_state(db.month_spend_inr(conn), cfg.monthly_inr) != "ok" \
@@ -280,7 +291,7 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
         speaker_task.cancel()
         if not saved:
             db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
-                           interrupted=True,
+                           interrupted=True, private=ctx.private,
                            actions=json.dumps(ctx.actions) if ctx.actions else "")
         raise
     finally:

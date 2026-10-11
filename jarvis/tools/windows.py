@@ -166,7 +166,7 @@ def undo(u: dict) -> None:
 
 
 # -------- tools
-@tool("List the open windows (title and app).")
+@tool("List the open windows (title and app).", readonly=True)
 def list_windows(ctx):
     wins = list_top()[:30]
     return "\n".join(f"- {x['title']} ({x['exe']})" for x in wins) or "No windows are open.", None

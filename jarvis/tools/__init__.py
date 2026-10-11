@@ -21,6 +21,10 @@ class Tool:
     parameters: dict
     confirm: bool = False
     describe: Callable[[dict], str] | None = None   # verb phrase for the question: "close Chrome"
+    readonly: bool = False    # changes nothing: never needs confirming, even in a tainted turn
+    private: bool = False     # returns file contents: the rest of the turn stays on `local`
+    untrusted: bool = False   # returns outside text that may carry instructions: taints the turn
+    limit: int = MAX_RESULT   # result size cap (characters)
 
 
 @dataclass
@@ -32,12 +36,16 @@ class Ctx:
     agent: str | None = None              # set when a sub-agent is calling
     allowed: list[str] | None = None      # the sub-agent's tool list
     actions: list[dict] = field(default_factory=list)   # {name, arguments, result} for history
+    private: bool = False     # file contents were read this turn
+    tainted: bool = False     # untrusted text was read this turn: side effects need a yes
 
 
 TOOLS: dict[str, Tool] = {}
 
 
-def tool(description: str, confirm: bool = False, describe=None, **params: str):
+def tool(description: str, confirm: bool = False, describe=None, readonly: bool = False,
+         private: bool = False, untrusted: bool = False, max_chars: int = MAX_RESULT,
+         **params: str):
     """Register fn as a tool. params: name="type: description"; a leading '?' makes it optional."""
     def wrap(fn):
         props, required = {}, []
@@ -49,7 +57,7 @@ def tool(description: str, confirm: bool = False, describe=None, **params: str):
                 required.append(name)
         TOOLS[fn.__name__] = Tool(fn.__name__, fn, description,
                                   {"type": "object", "properties": props, "required": required},
-                                  confirm, describe)
+                                  confirm, describe, readonly, private, untrusted, max_chars)
         return fn
     return wrap
 
@@ -74,7 +82,7 @@ async def _log(ctx: Ctx, name: str, args: dict, result: str, status: str, undo) 
     await ctx.emit(_record(ctx, name, args, result, status, undo))
 
 
-def _outcome(fut: asyncio.Future) -> tuple[str, str, dict | None]:
+def _outcome(fut: asyncio.Future, limit: int = MAX_RESULT) -> tuple[str, str, dict | None]:
     """(result, status, undo) from a finished tool call."""
     if fut.cancelled():
         return "Error: cancelled", "failed", None
@@ -82,7 +90,7 @@ def _outcome(fut: asyncio.Future) -> tuple[str, str, dict | None]:
         return f"Error: {e}", "failed", None
     out = fut.result()
     result, undo_info = out if isinstance(out, tuple) else (out, None)
-    return str(result)[:MAX_RESULT], "done", undo_info
+    return str(result)[:limit], "done", undo_info
 
 
 async def run(ctx: Ctx, call: dict) -> str:
@@ -97,7 +105,7 @@ async def run(ctx: Ctx, call: dict) -> str:
         assert isinstance(args, dict)
     except (ValueError, AssertionError):
         return "Error: the tool arguments were not valid JSON."
-    if t.confirm or ctx.agent:
+    if t.confirm or ctx.agent or (ctx.tainted and not t.readonly):
         try:  # describe may resolve the target (e.g. the window) and fail before we ask
             phrase = t.describe(args) if t.describe else f"run {name} {_short(args)}".strip()
         except Exception as e:
@@ -122,7 +130,13 @@ async def run(ctx: Ctx, call: dict) -> str:
             task.cancel()
         task.add_done_callback(lambda f: _record(ctx, name, args, *_outcome(f)))
         raise
-    result, status, undo_info = _outcome(task)
+    result, status, undo_info = _outcome(task, t.limit)
+    if status == "done":
+        if t.private and ctx.cfg.content_private:
+            ctx.private = True
+        if t.untrusted:
+            ctx.tainted = True
+            result = f'<untrusted source="{name}">\n{result}\n</untrusted>'
     await _log(ctx, name, args, result, status, undo_info)
     return result
 
@@ -155,7 +169,6 @@ def parse_yes_no(text: str) -> bool:
     return bool(words & _YES) or "do it" in t or "go ahead" in t
 
 
-READ_ONLY = {"find_files", "list_windows", "delegate", "undo_last"}
 UNDO_WINDOW = timedelta(minutes=30)
 
 
@@ -167,7 +180,8 @@ def undo_last(ctx):
     for a in db.recent_actions(ctx.conn, 50):
         if a["ts"] < since:
             break
-        if a["tool"] in READ_ONLY or a["status"] in ("declined", "failed"):
+        t = TOOLS.get(a["tool"])
+        if (t and t.readonly) or a["tool"] == "undo_last" or a["status"] in ("declined", "failed"):
             continue
         if a["status"] == "done" and a["undo"]:
             return undo(ctx.conn, a["id"]), None
@@ -175,4 +189,4 @@ def undo_last(ctx):
     return "There is nothing recent to undo.", None
 
 
-from jarvis.tools import apps, delegate, files, memory, windows  # noqa: E402,F401  (registers their tools)
+from jarvis.tools import apps, delegate, files, memory, notes, windows  # noqa: E402,F401  (registers their tools)

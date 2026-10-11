@@ -193,7 +193,7 @@ async def test_undo_last_only_considers_latest_change(cfg, conn, fake_tools):
 
 async def test_undo_last_skips_read_only_tools(cfg, conn, monkeypatch):
     monkeypatch.setitem(TOOLS, "find_files", Tool("find_files", lambda ctx: ("x", None), "x",
-                                                  {"type": "object"}))
+                                                  {"type": "object"}, readonly=True))
     ctx = make_ctx(cfg, conn)
     await run(ctx, call("remember", text="oops"))
     await run(ctx, call("find_files"))
