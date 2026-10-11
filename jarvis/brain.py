@@ -190,9 +190,14 @@ async def agent_loop(ctx: tools.Ctx, messages: list[dict], route: str, tool_name
              "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
             for c in calls]})
         await ev("tools")
+        declined = []
         for c in calls:
-            messages.append({"role": "tool", "tool_call_id": c["id"],
-                             "content": await tools.run(ctx, c)})
+            result = await tools.run(ctx, c)
+            messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
+            if result == tools.DECLINED:
+                declined.append(c["name"])
+        if declined and ctx.agent:   # a "no" ends a sub-agent's work; it doesn't try again
+            return "".join(texts).strip() + f"\n\n(The user declined {', '.join(declined)}.)"
     await ev("capped")
     return "".join(texts).strip() + "\n\n(Stopped after five steps.)"
 

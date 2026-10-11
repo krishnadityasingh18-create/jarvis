@@ -106,7 +106,9 @@ async def run(ctx: Ctx, call: dict) -> str:
         assert isinstance(args, dict)
     except (ValueError, AssertionError):
         return "Error: the tool arguments were not valid JSON."
-    if t.confirm or ctx.agent or (ctx.tainted and not t.readonly):
+    # Sub-agents and tainted turns ask before anything that changes something; looking
+    # (search, read) doesn't ask: a researcher asking before every search was unusable.
+    if t.confirm or ((ctx.agent or ctx.tainted) and not t.readonly):
         try:  # describe may resolve the target (e.g. the window) and fail before we ask
             phrase = t.describe(args) if t.describe else f"run {name} {_short(args)}".strip()
         except Exception as e:

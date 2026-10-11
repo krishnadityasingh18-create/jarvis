@@ -388,3 +388,18 @@ async def test_system_prompt_names_the_users_real_folders(cfg, conn, monkeypatch
     system = seen[0]["messages"][0]["content"]
     assert f"Desktop: {home / 'OneDrive' / 'Desktop'}" in system
     assert f"Downloads: {home / 'Downloads'}" in system and "Documents:" not in system
+
+
+async def test_agent_stops_when_the_user_declines(cfg, conn, monkeypatch):
+    from jarvis import tools as tools_mod
+    seen = []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "reasoning"), tc("remember", text="x")],
+        [("route", "reasoning"), ("text", "trying again")], seen=seen))
+
+    async def no(q):
+        return False
+    ctx = tools_mod.Ctx(cfg, conn, no, noop_emit, agent="researcher", allowed=["remember"])
+    out = await brain.agent_loop(ctx, [{"role": "user", "content": "x"}], "reasoning",
+                                 ["remember"])
+    assert len(seen) == 1 and "declined" in out
