@@ -1,0 +1,5 @@
+# Local model for private turns: qwen3:4b-instruct with a context big enough for file
+# passages (Ollama's default context silently cuts long prompts).
+# Create once:  ollama create jarvis-local -f Modelfile
+FROM qwen3:4b-instruct
+PARAMETER num_ctx 12288
