@@ -26,7 +26,8 @@ You have full permissions, inside these boundaries the user set:
 - You can't ask the user anything. If part of the task needs something outside these
   boundaries or is unclear, do the safe part and say exactly what is left.
 When you are done, run the project's tests if it has any, then commit all your changes
-with a clear message (git add -A; git commit). End with a 2-4 line plain summary of what
+with a clear message (git add -A; git commit). Never commit build artifacts or caches
+(__pycache__, *.pyc, node_modules, build output): add a .gitignore for them if needed. End with a 2-4 line plain summary of what
 you changed, for JARVIS to read aloud."""
 
 

@@ -154,6 +154,31 @@ ollama create jarvis-local -f Modelfile
   JARVIS reads one, any action with a side effect needs your confirmation for
   the rest of that turn.
 
+### Coding goes to Claude Code
+
+JARVIS never writes code itself; its own file tools only write notes and
+documents. Anything involving code goes straight to Claude Code (`claude -p`) in
+the project you name, for example "ask Claude to add a CSV export to
+motor-fault-detection".
+
+- **No question first:** JARVIS doesn't ask before sending the request. It
+  does ask if, earlier in the same request, it read a web page or file that
+  could have planted the instruction.
+- **Projects:** the project must be a git repository in your home folder.
+  JARVIS finds it by name.
+- **Permissions and rules:** Claude Code runs with full permissions inside
+  your standing rules:
+  - no payments
+  - nothing permanent (no history rewriting, nothing deleted outside git)
+  - nothing outward-facing (no pushing, publishing or messages)
+  - no secrets in code
+
+  It runs the tests, commits, and JARVIS reads you its summary.
+- **Undo:** "undo that" reverts the commit with `git revert`, so the history
+  keeps both.
+- **Usage:** this uses your Claude subscription's limits. A task is stopped
+  after 20 minutes.
+
 ### Phase 2b demo
 
 1. "What do my notes say about Thevenin's theorem?" The answer is built from your
