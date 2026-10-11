@@ -115,6 +115,7 @@ class VoiceLoop:
         self.fsm = VoiceFSM(cfg.barge_in)
         self.lock = threading.RLock()
         self.available = False
+        self.loaded = False   # models loaded, or loading failed: either way, done trying
         self.cuda = False
         self.whisper = self.kokoro = self.oww = self.vad = None
         self._held = False
@@ -168,6 +169,8 @@ class VoiceLoop:
         except Exception as e:
             self.on_event("banner", {"text": f"{NO_MIC} (models failed: {e})"})
             return
+        finally:
+            self.loaded = True
         while True:
             try:
                 sr = int(sd.query_devices(kind="input")["default_samplerate"])

@@ -125,7 +125,8 @@ async def run(ctx: Ctx, call: dict) -> str:
         return (f"Error: this request used the user's private files, so {name} can't run in "
                 "it: nothing from it may reach the internet or cloud models. The user can ask "
                 "for that separately.")
-    if t.confirm or (ctx.agent and not t.readonly) or             (ctx.tainted and not t.readonly and not t.local_only):
+    if t.confirm or (ctx.agent and not t.readonly) or (
+            ctx.tainted and not t.readonly and not t.local_only):
         try:  # describe may resolve the target (e.g. the window) and fail before we ask
             phrase = t.describe(args) if t.describe else f"run {name} {_short(args)}".strip()
         except Exception as e:

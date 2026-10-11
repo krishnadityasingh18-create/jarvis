@@ -81,3 +81,56 @@ def test_config_briefing():
     c = load_config()
     assert c.briefing_time == time(7, 30) and c.briefing_enabled is True
     assert round(c.latitude, 2) == 12.82 and round(c.longitude, 2) == 80.04
+
+
+class FakeVoice:
+    def __init__(self, state="idle", loaded=True):
+        from jarvis.voice import State
+        self.fsm = type("F", (), {"state": State(state)})()
+        self.loaded, self.events, self.said = loaded, [], []
+
+    def event(self, name):
+        self.events.append(name)
+
+    async def speak(self, text):
+        self.said.append(text)
+
+    def prepare(self, text):
+        pass
+
+
+def test_not_ready_until_voice_loaded_and_ui_connected(cfg, conn):
+    h = hub(cfg, conn)
+    h.voice = FakeVoice(loaded=False)
+    assert not h.ready(elapsed=5)
+    h.voice.loaded = True
+    assert not h.ready(elapsed=5)          # no window connected yet
+    h.sockets.add(object())
+    assert h.ready(elapsed=5)
+    h.sockets.clear()
+    assert h.ready(elapsed=200)            # give up waiting for the window after a while
+
+
+async def test_scheduler_waits_while_voice_busy(cfg, conn):
+    h = hub(cfg, conn)
+    h.voice = FakeVoice("listening")
+    reminder(conn, "2026-10-12T07:00")
+    await h.tick(MON_0700)
+    assert not h.sent and h.voice.said == []
+
+
+async def test_briefing_turn_tells_voice_it_started(cfg, conn):
+    cfg.briefing_enabled, cfg.briefing_time = True, time(7, 30)
+    h = hub(cfg, conn)
+    h.voice = FakeVoice("idle")
+    await h.tick(datetime(2026, 10, 12, 7, 45))
+    await asyncio.sleep(0)
+    assert "text_input" in h.voice.events and h.turns == [h.BRIEFING_PROMPT]
+
+
+async def test_no_morning_briefing_in_the_evening(cfg, conn):
+    cfg.briefing_enabled, cfg.briefing_time = True, time(7, 30)
+    h = hub(cfg, conn)
+    await h.tick(datetime(2026, 10, 12, 23, 0))
+    await asyncio.sleep(0)
+    assert h.turns == []

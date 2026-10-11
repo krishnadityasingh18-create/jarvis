@@ -223,6 +223,12 @@ ON_SCREEN = "Claude's answer is on screen, sir."
 SPEAK_MAX = 400
 
 
+def _plan_line(plan: str, tainted: bool) -> str:
+    if tainted:   # written while outside text (email, GitHub...) was in play: data only
+        return f'\n\nToday\'s plan:\n<untrusted source="plan">\n{plan}\n</untrusted>'
+    return f"\n\nToday's plan: {plan}"
+
+
 _BRIEFING = re.compile(r"\b(brief me|(morning|daily|today'?s) briefing)\b", re.IGNORECASE)
 
 
@@ -273,11 +279,13 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
     db.add_message(conn, "user", user_text)
     if (prompt := direct_claude_prompt(user_text)) is not None:
         return await _direct_claude(cfg, conn, prompt, emit, speak)
+    from jarvis.tools import briefing as briefing_tool
     from jarvis.tools import day
     t = day.now()
     system = (cfg.persona + "\n\n" + _places()
               + f"\n\nNow: {t:%A %d %B %Y, %H:%M} (local time)."
-              + (f"\n\nToday's plan: {plan}" if (plan := day.today_plan(conn)) else "")
+              + (_plan_line(plan, day.today_plan_tainted(conn))
+                 if (plan := day.today_plan(conn)) else "")
               + (f"\n\n{mb}" if (mb := memory_block(conn)) else ""))
     messages = [{"role": "system", "content": system}] + _history(conn,
                                                                    redact=True)
@@ -349,7 +357,8 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
                 messages += [{"role": "assistant", "content": "", "tool_calls": [
                     {"id": "brief_0", "type": "function",
                      "function": {"name": "daily_briefing", "arguments": "{}"}}]},
-                    {"role": "tool", "tool_call_id": "brief_0", "content": result}]
+                    {"role": "tool", "tool_call_id": "brief_0", "content": result},
+                    {"role": "system", "content": briefing_tool.COMPOSE}]
             await agent_loop(ctx, messages, ui_route, list(tools.TOOLS), on_event=on_event)
         except StreamBroken:
             await say(LOST)

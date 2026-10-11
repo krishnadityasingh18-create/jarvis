@@ -1,7 +1,8 @@
 import asyncio
+import time as clock_time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -88,12 +89,24 @@ class Hub:
             await self.broadcast({"type": "banner", "text": f"Couldn't undo: {e}"})
 
     BRIEFING_PROMPT = "Give me my morning briefing."
+    BRIEFING_UNTIL = time(12, 0)   # a "morning" briefing never starts in the afternoon
+    READY_TIMEOUT_S = 120
+
+    def ready(self, elapsed: float) -> bool:
+        """Only act once JARVIS can be heard and seen: speech loaded (or failed) and the
+        window connected. After a couple of minutes, stop waiting for the window."""
+        voice_ok = self.voice is None or getattr(self.voice, "loaded", True)
+        return voice_ok and (bool(self.sockets) or elapsed >= self.READY_TIMEOUT_S)
 
     async def tick(self, now: datetime) -> None:
         """Every 30 s: speak due reminders, and start the morning briefing once a day.
         These are the only things JARVIS does unasked (the user set them up)."""
         if self.turn is not None and not self.turn.done() and not self.turn.cancelling():
             return   # never talk over a reply; try again next tick
+        if self.voice is not None:
+            from jarvis.voice import State
+            if self.voice.fsm.state is not State.IDLE:
+                return   # the user is talking, or JARVIS is: wait
         due = self.conn.execute("SELECT id, at, text FROM reminders WHERE done=0 AND at <= ? "
                                 "ORDER BY at", (now.isoformat(timespec="minutes"),)).fetchall()
         for rid, at, text in due:
@@ -103,17 +116,20 @@ class Hub:
                                   "text": f"Reminder{' (late)' if late else ''}: {text}"})
             if self.voice:
                 await self.voice.speak(f"{'A late reminder' if late else 'Reminder'}, sir: {text}")
-        if due or not self.cfg.briefing_enabled or now.time() < self.cfg.briefing_time:
+        if due or not self.cfg.briefing_enabled or \
+                not self.cfg.briefing_time <= now.time() < self.BRIEFING_UNTIL:
             return
         key = f"briefed:{now.date().isoformat()}"
         if not self.conn.execute("SELECT 1 FROM kv WHERE key=?", (key,)).fetchone():
             self.conn.execute("INSERT INTO kv(key, value) VALUES(?,?)", (key, now.isoformat()))
-            await self.start_turn(self.BRIEFING_PROMPT, typed=False)
+            await self.start_turn(self.BRIEFING_PROMPT, typed=True)   # voice: idle → thinking
 
     async def clock(self) -> None:
+        start = clock_time.monotonic()
         while True:
             try:
-                await self.tick(datetime.now())
+                if self.ready(clock_time.monotonic() - start):
+                    await self.tick(datetime.now())
             except Exception as e:   # a bad row must not stop reminders for good
                 await self.broadcast({"type": "banner", "text": f"Scheduler error: {e}"})
             await asyncio.sleep(30)

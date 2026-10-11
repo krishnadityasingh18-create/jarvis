@@ -164,3 +164,37 @@ def test_flags():
         assert TOOLS[n].readonly and TOOLS[n].untrusted
     for n in ("gmail_draft", "calendar_add"):
         assert TOOLS[n].confirm and not TOOLS[n].readonly
+
+
+
+async def test_revoked_mid_session_says_reconnect(cfg, conn, monkeypatch):
+    from google.auth.exceptions import RefreshError
+
+    class Revoked:
+        def __getattr__(self, name):
+            return lambda *a, **k: self
+
+        def execute(self):
+            raise RefreshError("invalid_grant: Token has been expired or revoked.")
+    monkeypatch.setattr(google, "service", lambda name, version: Revoked())
+    r = await run(make_ctx(cfg, conn), call("gmail_search", query="x"))
+    assert "reconnect" in r and "accounts connect google" in r
+    assert "reconnect" in google_tools.briefing_part("email")
+
+
+def test_token_saved_without_access_token_and_refresh_not_repeated(monkeypatch):
+    saved, refreshed = {}, []
+
+    class Creds:
+        valid, refresh_token, expired, token = False, "r", False, None
+
+        def refresh(self, request):
+            refreshed.append(1)
+            self.valid = True
+    monkeypatch.setattr(google, "get_key", lambda name: '{"refresh_token": "r"}')
+    monkeypatch.setattr(google, "set_key", lambda name, value: saved.update({name: value}))
+    monkeypatch.setattr(google, "_load", lambda raw: Creds())
+    monkeypatch.setattr(google, "_creds", None)
+    google.credentials()
+    google.credentials()
+    assert refreshed == [1] and not saved          # nothing big written back to the vault

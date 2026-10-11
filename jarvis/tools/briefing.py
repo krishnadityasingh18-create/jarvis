@@ -51,7 +51,7 @@ def _part(label: str, fn) -> str:
 
 
 @tool("Gather today's briefing: date, weather, classes, deadlines, reminders, plan, calendar, "
-      "important email and GitHub. Use it for 'brief me' or the morning briefing.",
+      "important email and GitHub. Use it for 'brief me' or the morning briefing. " + COMPOSE,
       readonly=True, untrusted=True, max_chars=8000)
 def daily_briefing(ctx):
     now, conn = day.now(), ctx.conn
@@ -72,4 +72,4 @@ def daily_briefing(ctx):
     ]
     if plan := day.today_plan(conn):
         parts.append(f"Plan already saved for today:\n{plan}")
-    return "\n\n".join(parts) + "\n\n" + COMPOSE, None
+    return "\n\n".join(parts), None

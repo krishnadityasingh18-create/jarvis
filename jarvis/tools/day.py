@@ -40,6 +40,12 @@ def today_plan(conn) -> str | None:
     return row[0] if row else None
 
 
+def today_plan_tainted(conn) -> bool:
+    row = conn.execute("SELECT tainted FROM plans WHERE day=?",
+                       (now().date().isoformat(),)).fetchone()
+    return bool(row and row[0])
+
+
 @tool(local_only=True, description="Add a class to the user's weekly timetable.",
       day="string: weekday, e.g. Monday", start="string: HH:MM", end="string: HH:MM",
       subject="string: the subject", room="?string: room or place")
@@ -121,13 +127,18 @@ def list_tasks(ctx):
     return tasks_text(ctx.conn) or "No open tasks.", None
 
 
-@tool(local_only=True, description="Set a reminder that JARVIS speaks at the given time.",
+# not local_only: a reminder is spoken in JARVIS's own voice, so outside text mustn't set one
+@tool("Set a reminder that JARVIS speaks at the given time.",
       at="string: local date and time, YYYY-MM-DDTHH:MM", text="string: what to remind")
 def remind(ctx, at, text):
+    if len(text) > 200:
+        raise ValueError("keep the reminder under 200 characters")
     try:
         when = datetime.fromisoformat(at)
     except ValueError:
         raise ValueError(f"'{at}' isn't a date and time like 2026-10-12T09:15") from None
+    if when.tzinfo:   # "…+05:30" or "…Z": store as local time like everything else
+        when = when.astimezone().replace(tzinfo=None)
     if when < now() - timedelta(minutes=1):
         raise ValueError("that time has already passed")
     rid = ctx.conn.execute("INSERT INTO reminders(at, text) VALUES(?,?)",
@@ -149,7 +160,10 @@ def cancel_reminder(ctx, reminder_id):
 def set_plan(ctx, text):
     day = now().date().isoformat()
     old = today_plan(ctx.conn)
-    ctx.conn.execute("INSERT OR REPLACE INTO plans(day, text) VALUES(?,?)", (day, text))
+    # a plan written in a turn that read outside text is kept marked, and goes into later
+    # prompts wrapped as untrusted data
+    ctx.conn.execute("INSERT OR REPLACE INTO plans(day, text, tainted) VALUES(?,?,?)",
+                     (day, text, int(ctx.tainted)))
     return "Today's plan is saved.", {"kind": "restore_plan", "day": day, "text": old}
 
 

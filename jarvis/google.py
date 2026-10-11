@@ -24,7 +24,8 @@ def connect(client_file: Path) -> None:
                          "(see README: Connecting Google).")
     creds = InstalledAppFlow.from_client_secrets_file(str(client_file), SCOPES) \
         .run_local_server(port=0, open_browser=True)
-    set_key(TOKEN, creds.to_json())
+    # Credential Manager holds ~1280 characters: keep only what's needed to refresh
+    set_key(TOKEN, creds.to_json(strip=["token", "expiry"]))
 
 
 def _load(raw: str):
@@ -32,21 +33,34 @@ def _load(raw: str):
     return Credentials.from_authorized_user_info(json.loads(raw), SCOPES)
 
 
+RECONNECT = f"Google needs you to reconnect (the sign-in expired or was revoked); {HOW}"
+_creds = None   # refreshed credentials, kept in memory (the vault holds only the refresh token)
+
+
 def credentials():
+    global _creds
+    if _creds is not None and _creds.valid:
+        return _creds
     raw = get_key(TOKEN)
     if not raw:
         raise NotConnected(f"Google isn't connected yet; {HOW}")
     creds = _load(raw)
-    if not creds.valid and creds.expired and creds.refresh_token:
+    if not creds.valid and creds.refresh_token:
         from google.auth.exceptions import RefreshError
         from google.auth.transport.requests import Request
         try:
             creds.refresh(Request())
         except RefreshError:
-            raise NotConnected(f"Google needs you to reconnect (the sign-in expired or was "
-                               f"revoked); {HOW}") from None
-        set_key(TOKEN, creds.to_json())
+            raise NotConnected(RECONNECT) from None
+    _creds = creds
     return creds
+
+
+def revoked(e: Exception) -> bool:
+    """A refresh failure or HTTP 401 from any Google call: the sign-in is no longer valid."""
+    from google.auth.exceptions import RefreshError
+    status = getattr(getattr(e, "resp", None), "status", None)
+    return isinstance(e, RefreshError) or status == 401
 
 
 def service(name: str, version: str):

@@ -1,5 +1,6 @@
 """Gmail (read, drafts), Calendar (read, add) and Drive (search) on the user's account."""
 import base64
+import functools
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 
@@ -7,6 +8,21 @@ from jarvis import google
 from jarvis.tools import day, tool
 
 READ_CHARS = 6000
+
+
+def _reconnect(fn):
+    """Turn a sign-in revoked mid-session into the plain reconnect message."""
+    @functools.wraps(fn)
+    def wrapper(*a, **k):
+        try:
+            return fn(*a, **k)
+        except google.NotConnected:
+            raise
+        except Exception as e:
+            if google.revoked(e):
+                raise google.NotConnected(google.RECONNECT) from None
+            raise
+    return wrapper
 
 
 def _header(msg: dict, name: str) -> str:
@@ -29,6 +45,7 @@ def _messages(query: str, n: int) -> list[str]:
 @tool("Search the user's Gmail (Gmail search syntax, e.g. 'is:unread from:prof'). Returns "
       "message ids, senders and subjects.", readonly=True, untrusted=True,
       query="string: Gmail search query", n="?integer: how many, at most 20")
+@_reconnect
 def gmail_search(ctx, query, n=10):
     rows = _messages(query, max(1, min(int(n), 20)))
     return "\n".join(rows) or f"No email matches '{query}'.", None
@@ -42,6 +59,7 @@ def _text(part: dict) -> str:
 
 @tool("Read one email by its id (from gmail_search).", readonly=True, untrusted=True,
       max_chars=READ_CHARS + 400, message_id="string: the message id")
+@_reconnect
 def gmail_read(ctx, message_id):
     g = google.service("gmail", "v1")
     msg = g.users().messages().get(userId="me", id=message_id, format="full").execute()
@@ -54,6 +72,7 @@ def gmail_read(ctx, message_id):
       "Asks first.", confirm=True, exports=True,
       describe=lambda a: f"save an email draft to {a.get('to', '')}",
       to="string: recipient address", subject="string: subject", body="string: the text")
+@_reconnect
 def gmail_draft(ctx, to, subject, body):
     m = EmailMessage()
     m["To"], m["Subject"] = to, subject
@@ -82,6 +101,7 @@ def _events(days: int) -> list[str]:
 
 @tool("List events on the user's Google Calendar.", readonly=True, untrusted=True,
       days="?integer: how many days from today, default 1")
+@_reconnect
 def calendar_events(ctx, days=1):
     return "\n".join(_events(max(1, min(int(days), 31)))) or "No events.", None
 
@@ -90,6 +110,7 @@ def calendar_events(ctx, days=1):
       describe=lambda a: f"add '{a.get('title', '')}' to your calendar at {a.get('start', '')}",
       title="string: event title", start="string: YYYY-MM-DDTHH:MM local",
       end="string: YYYY-MM-DDTHH:MM local")
+@_reconnect
 def calendar_add(ctx, title, start, end):
     s, e = (datetime.fromisoformat(x).astimezone() for x in (start, end))
     if e <= s:
@@ -102,6 +123,7 @@ def calendar_add(ctx, title, start, end):
 
 @tool("Search the user's Google Drive by file name.", readonly=True, untrusted=True,
       query="string: words in the file name", n="?integer: how many, at most 20")
+@_reconnect
 def drive_search(ctx, query, n=10):
     q = "name contains '" + query.replace("\\", "\\\\").replace("'", "\\'") + \
         "' and trashed = false"
@@ -112,12 +134,17 @@ def drive_search(ctx, query, n=10):
                      for f in files) or f"No Drive files match '{query}'.", None
 
 
+@_reconnect
+def _briefing_part(kind: str) -> str:
+    if kind == "calendar":
+        return "\n".join(_events(1)) or "nothing today"
+    return "\n".join(_messages("is:unread is:important newer_than:2d", 5)) or \
+        "no unread important email"
+
+
 def briefing_part(kind: str) -> str:
     try:
-        if kind == "calendar":
-            return "\n".join(_events(1)) or "nothing today"
-        return "\n".join(_messages("is:unread is:important newer_than:2d", 5)) or \
-            "no unread important email"
+        return _briefing_part(kind)
     except google.NotConnected as e:
         return str(e)
 

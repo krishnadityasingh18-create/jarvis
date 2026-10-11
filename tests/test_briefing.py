@@ -43,7 +43,6 @@ async def test_briefing_gathers_everything(cfg, conn, sources):
     assert "18:00 gym" in r
     assert "review-requested" in r and "3 unread" in r
     assert "Google isn't connected" in r
-    assert "set_plan" in r                                # tells the model to save the plan
 
 
 async def test_briefing_survives_every_source_failing(cfg, conn, monkeypatch):
@@ -75,10 +74,18 @@ async def test_briefing_request_gathers_real_data_first(cfg, conn, sources, monk
         pass
     await brain.run_turn(cfg, conn, text, "fast", noop_emit, speak)
     msgs = seen[0]["messages"]
-    assert msgs[-2]["tool_calls"][0]["function"]["name"] == "daily_briefing"
-    assert "Weather:" in msgs[-1]["content"] and msgs[-1]["role"] == "tool"
+    assert msgs[-3]["tool_calls"][0]["function"]["name"] == "daily_briefing"
+    assert "Weather:" in msgs[-2]["content"] and msgs[-2]["role"] == "tool"
+    assert msgs[-1]["role"] == "system" and "set_plan" in msgs[-1]["content"]
 
 
 def test_not_a_briefing_request():
     from jarvis import brain
     assert not brain.wants_briefing("what is a debriefing in psychology")
+
+
+
+async def test_briefing_instructions_are_outside_the_untrusted_block(cfg, conn, sources):
+    r = await run(make_ctx(cfg, conn), call("daily_briefing"))
+    assert "set_plan" not in r                     # data only
+    assert "set_plan" in TOOLS["daily_briefing"].description

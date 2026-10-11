@@ -39,8 +39,11 @@ def accounts_cli(args: list[str]) -> None:
         print("Google connected (token saved to Windows Credential Manager).")
     elif args == ["list"]:
         print(f"google: {'connected' if google.connected() else 'not connected'}")
-        gh = sp.run(["gh", "auth", "status"], capture_output=True, text=True)
-        print(f"github: {'connected (gh)' if gh.returncode == 0 else 'not connected (gh auth login)'}")
+        try:
+            ok = sp.run(["gh", "auth", "status"], capture_output=True, text=True).returncode == 0
+        except FileNotFoundError:
+            ok = False
+        print(f"github: {'connected (gh)' if ok else 'not connected (install gh, then gh auth login)'}")
     else:
         print("usage: python -m jarvis accounts connect google | accounts list")
 

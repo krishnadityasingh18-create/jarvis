@@ -47,6 +47,8 @@ def connect(path: Path | str) -> sqlite3.Connection:
         conn.execute("ALTER TABLE messages ADD COLUMN actions TEXT DEFAULT ''")
     if "private" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN private INTEGER DEFAULT 0")
+    if "tainted" not in [r[1] for r in conn.execute("PRAGMA table_info(plans)")]:
+        conn.execute("ALTER TABLE plans ADD COLUMN tainted INTEGER DEFAULT 0")
     return conn
 
 
