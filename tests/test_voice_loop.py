@@ -100,3 +100,24 @@ def test_next_sentence_synthesised_while_current_plays(vl, audio_log):
     asyncio.run(go())
     assert audio_log.index(("synth", "three")) < audio_log.index(("played",))
     assert [e for e in audio_log if e[0] == "play"] == [("play", 3), ("play", 5)]
+
+
+def test_confirm_silence_after_8s_answers_empty(vl):
+    vl.vad = type("V", (), {"predict": lambda self, x, frame_size=640: 0.0})()
+    vl.oww = type("O", (), {"predict": lambda self, x: (_ for _ in ()).throw(AssertionError)})()
+    vl.fsm.state = State.THINKING
+    vl.event("confirm_listen")
+    vl._t0 -= 9
+    vl._frame(np.zeros(1280, np.float32))       # no wake-word check while confirming
+    assert ("confirm_heard", {"text": ""}) in vl.events and vl.fsm.state is State.THINKING
+
+
+def test_confirm_answer_transcribed_to_confirm_heard(vl):
+    vl.fsm.state = State.THINKING
+    vl.event("confirm_listen")
+    vl.transcribe = lambda audio: "Yes."
+    vl._buf = [np.zeros(16000, np.float32)]
+    vl.event("vad_end")
+    time.sleep(0.2)
+    assert ("confirm_heard", {"text": "Yes."}) in vl.events
+    assert not [e for e in vl.events if e[0] == "transcript"]

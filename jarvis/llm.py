@@ -30,7 +30,7 @@ def stream_reply(cfg: Config, conn, messages: list[dict], route: str,
     """Yields ("route", name), ("text", delta)... and at most one final ("tool_calls", [...])."""
     over = db.budget_state(db.month_spend_inr(conn), cfg.monthly_inr) == "over"
     errors = []
-    extra = {"tools": tools} if tools else {}
+    tool_args = {"tools": tools} if tools else {}
     for name in route_order(cfg, route) if fallback else [route]:
         r = cfg.routes[name]
         if r.key and get_key(r.key) is None:
@@ -43,13 +43,16 @@ def stream_reply(cfg: Config, conn, messages: list[dict], route: str,
         try:
             stream = client_factory(r).chat.completions.create(
                 model=r.model, messages=messages, stream=True,
-                stream_options={"include_usage": True}, **extra)
+                stream_options={"include_usage": True}, **tool_args,
+                **({"extra_body": r.extra_body} if r.extra_body else {}))
             it = iter(stream)
             text, usage, calls = "", None, {}
             for ch in it:
                 usage = getattr(ch, "usage", None) or usage
                 d = ch.choices[0].delta if ch.choices else None
                 delta = d.content if d else None
+                if delta:  # Qwen sometimes leaks its thinking tags into the reply
+                    delta = delta.replace("<think>", "").replace("</think>", "")
                 tcs = getattr(d, "tool_calls", None) if d else None
                 if not delta and not tcs:
                     continue

@@ -78,6 +78,44 @@ voice, hotkey, barge-in mode and budget.
 7. Turn off Wi-Fi and ask something. It answers via `local`, with a banner.
 8. Close and restart the app. The transcript reloads.
 
+## Phase 2a: laptop control, memory and sub-agents
+
+There's nothing new to install. On start, JARVIS reads your Start-menu apps and
+builds a filename index of your home folder in the background. That takes about
+15 seconds and is refreshed every 30 minutes.
+
+- **Allowed folders:** `[files]` in `config.toml` (default: home, minus
+  `.venv`, `node_modules`, `.git`, `AppData` and similar). File access is
+  read-only: JARVIS can only find files by name and open them in their
+  default app. It never opens programs or scripts as files.
+- **Scripts:** put `.py`, `.ps1` or `.bat` files in `jarvis/scripts/`. Only
+  these can run, and JARVIS always asks first.
+- **Confirmations:** closing a window, running a script, and anything a
+  sub-agent wants to do all need your approval. Say "yes" or "no" within 8
+  seconds (no wake word needed), or click **Confirm** or **Cancel**. Silence
+  counts as no.
+- **Action log and undo:** open **Actions** under the header. Each action has
+  an **Undo** button where undo is possible, or you can say "undo that".
+- **Sub-agents:** `[agents.*]` in `config.toml`. `thinker` uses Gemini for
+  hard reasoning. `private` runs only on the local model and can search your
+  files; it never falls back to the cloud.
+
+### Phase 2a demo
+
+1. "Hey Jarvis, open Notepad." Notepad opens, and Actions shows ✓ with Undo.
+2. "Snap Notepad to the left." Then: "Undo that." It returns to where it was.
+3. "Find my files with motor in the name." The paths appear on screen.
+4. "Remember that my lab is on Thursdays." Restart JARVIS, then ask "When is
+   my lab?"
+5. "Close Notepad." It asks "Close Notepad, sir?"; say "yes" and it closes.
+6. Put `hello.py` (`print("hello")`) in `jarvis/scripts/`. Say "Run the hello
+   script" and answer "no": it is cancelled. Ask again and click Confirm: the
+   output appears on screen.
+7. "Ask the thinker to plan my week around two exams and a lab report." The
+   status shows "Consulting thinker…", then you get the answer.
+8. "Ask the private agent which PDFs I have about motors." It asks before
+   searching; confirm, and it answers using only the local model.
+
 ## Cost
 
 ₹0 a month. Groq and Gemini are on free tiers, and Whisper, Kokoro and Ollama

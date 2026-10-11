@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import threading
 from collections.abc import Awaitable, Callable
@@ -118,12 +119,21 @@ async def _aiter(gen):
 
 
 def _history(conn) -> list[dict]:
-    """Past turns as the model wrote them: spoken part, --- and the screen detail, actions."""
+    """Past turns as the model wrote them: tool calls and results, then the spoken part,
+    --- and the screen detail. Actions go back as real tool messages: a text summary gets
+    imitated ("(actions: done)") instead of the tools being called again."""
     out = []
-    for m in db.recent_messages(conn, 20):
+    for n, m in enumerate(db.recent_messages(conn, 20)):
+        acts = json.loads(m["actions"]) if (m.get("actions") or "").startswith("[") else []
+        if acts:
+            ids = [f"h{n}_{i}" for i in range(len(acts))]
+            out.append({"role": "assistant", "content": "", "tool_calls": [
+                {"id": i, "type": "function",
+                 "function": {"name": a["name"], "arguments": a["arguments"]}}
+                for i, a in zip(ids, acts)]})
+            out += [{"role": "tool", "tool_call_id": i, "content": a["result"]}
+                    for i, a in zip(ids, acts)]
         content = m["content"] + ("\n---\n" + m["screen"] if m["screen"] else "")
-        if m.get("actions"):
-            content += f"\n(actions: {m['actions']})"
         if content.strip():
             out.append({"role": m["role"], "content": content})
     return out
@@ -248,7 +258,7 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
         sentences.put_nowait(None)
         await speaker_task
         db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
-                       actions="; ".join(ctx.actions))
+                       actions=json.dumps(ctx.actions) if ctx.actions else "")
         saved = True
 
         if db.budget_state(db.month_spend_inr(conn), cfg.monthly_inr) != "ok" \
@@ -260,7 +270,8 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
         speaker_task.cancel()
         if not saved:
             db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
-                           interrupted=True, actions="; ".join(ctx.actions))
+                           interrupted=True,
+                           actions=json.dumps(ctx.actions) if ctx.actions else "")
         raise
     finally:
         await emit({"type": "turn_end"})

@@ -72,7 +72,8 @@ async def test_confirm_declined_logs_declined_and_does_not_run(cfg, conn, fake_t
     assert await run(ctx, call("risky")) == tools.DECLINED
     assert fake_tools == [] and ctx.asked == ["Do the risky thing, sir?"]
     assert db.recent_actions(conn)[0]["status"] == "declined"
-    assert ctx.emitted[-1]["type"] == "action" and ctx.actions == ["risky → declined"]
+    assert ctx.emitted[-1]["type"] == "action"
+    assert ctx.actions == [{"name": "risky", "arguments": "{}", "result": tools.DECLINED}]
 
 
 async def test_confirm_accepted_runs(cfg, conn, fake_tools):

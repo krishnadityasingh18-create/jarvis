@@ -50,7 +50,10 @@ def list_top() -> list[dict]:
             if n:
                 buf = ctypes.create_unicode_buffer(n + 1)
                 user32.GetWindowTextW(hwnd, buf, n + 1)
-                if buf.value not in _SKIP_TITLES:
+                cls = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(hwnd, cls, 64)
+                # "Ghost" is the stand-in Windows draws for a hung app's window
+                if buf.value not in _SKIP_TITLES and cls.value != "Ghost":
                     out.append({"hwnd": hwnd, "title": buf.value, "exe": _exe(hwnd)})
         return True
     user32.EnumWindows(_ENUM(cb), 0)

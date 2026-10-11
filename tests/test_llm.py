@@ -95,7 +95,7 @@ def test_usage_row_written(cfg, conn):
 
 
 def test_route_order_puts_choice_first(cfg):
-    assert llm.route_order(cfg, "local") == ["local", "fast", "reasoning"]
+    assert llm.route_order(cfg, "local") == ["local", "fast", "fast_alt", "reasoning"]
 
 
 def test_make_client_uses_system_trust_store(cfg):
@@ -158,3 +158,20 @@ def test_tools_not_sent_when_none(cfg, conn):
     list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": fast})))
     list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": fast}), tools=[{"x": 1}]))
     assert "tools" not in kws[0] and kws[1]["tools"] == [{"x": 1}]
+
+
+def test_route_extra_body_passed(cfg, conn):
+    kws = []
+
+    def fast(**kw):
+        kws.append(kw)
+        return iter([chunk("hi")])
+    cfg.routes["fast"].extra_body = {"reasoning_effort": "none"}
+    list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": fast})))
+    assert kws[0]["extra_body"] == {"reasoning_effort": "none"}
+
+
+def test_think_tags_stripped(cfg, conn):
+    out = list(stream_reply(cfg, conn, MSGS, "fast",
+                            factory({"fast": ok("<think>", "</think>", "Hello sir.")})))
+    assert "".join(v for k, v in out if k == "text") == "Hello sir."

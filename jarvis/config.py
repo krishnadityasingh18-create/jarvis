@@ -1,5 +1,5 @@
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import keyring
@@ -15,6 +15,7 @@ class Route:
     key: str
     price_in: float = 0
     price_out: float = 0
+    extra_body: dict = field(default_factory=dict)   # provider-specific request options
 
 
 @dataclass

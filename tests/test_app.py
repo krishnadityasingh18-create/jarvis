@@ -21,13 +21,14 @@ def connect(client):
     w = ws.__enter__()
     assert w.receive_json()["type"] == "history"
     assert w.receive_json()["type"] == "usage"
+    assert w.receive_json()["type"] == "actions"
     return ws, w
 
 
 def test_text_input_runs_turn_and_streams_events(cfg, conn):
     calls = []
 
-    async def fake(cfg, conn, text, route, emit, speak):
+    async def fake(cfg, conn, text, route, emit, speak, **kw):
         calls.append((text, route))
         await emit({"type": "spoken_sentence", "text": "Hi."})
         await emit({"type": "turn_end"})
@@ -44,7 +45,7 @@ def test_text_input_runs_turn_and_streams_events(cfg, conn):
 def test_empty_text_ignored(cfg, conn):
     calls = []
 
-    async def fake(cfg, conn, text, route, emit, speak):
+    async def fake(cfg, conn, text, route, emit, speak, **kw):
         calls.append(text)
         await emit({"type": "turn_end"})
 
@@ -62,7 +63,7 @@ def test_empty_text_ignored(cfg, conn):
 def test_new_text_cancels_running_turn(cfg, conn):
     log = []
 
-    async def fake(cfg, conn, text, route, emit, speak):
+    async def fake(cfg, conn, text, route, emit, speak, **kw):
         log.append(("start", text))
         if text == "a":
             try:
@@ -87,7 +88,7 @@ def test_new_text_cancels_running_turn(cfg, conn):
 def test_cancel_message_stops_turn(cfg, conn):
     log = []
 
-    async def fake(cfg, conn, text, route, emit, speak):
+    async def fake(cfg, conn, text, route, emit, speak, **kw):
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:
@@ -108,7 +109,7 @@ def test_cancel_message_stops_turn(cfg, conn):
 def test_set_route_used_for_next_turn(cfg, conn):
     calls = []
 
-    async def fake(cfg, conn, text, route, emit, speak):
+    async def fake(cfg, conn, text, route, emit, speak, **kw):
         calls.append(route)
         await emit({"type": "turn_end"})
 
@@ -150,7 +151,7 @@ def test_typing_while_listening_runs_typed_turn(cfg, conn, monkeypatch):
         monkeypatch.setattr(sounddevice, name, lambda *a, **k: None)
     log = []
 
-    async def fake(cfg, conn, text, route, emit, speak, prepare=None):
+    async def fake(cfg, conn, text, route, emit, speak, prepare=None, **kw):
         log.append(("start", text))
         try:
             await asyncio.sleep(0.3)   # long enough for any stray cancel to land
@@ -181,3 +182,92 @@ def test_foreign_origin_rejected(cfg, conn):
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect("/ws", headers={"origin": "http://evil.example"}) as ws:
                 ws.receive_json()
+
+
+def confirm_runner(log):
+    async def fake(cfg, conn, text, route, emit, speak, **kw):
+        try:
+            ok = await kw["confirm"]("Close Notepad, sir?")
+            log.append(ok)
+        except asyncio.CancelledError:
+            log.append("cancelled")
+            await emit({"type": "turn_end"})
+            raise
+        await emit({"type": "turn_end"})
+    return fake
+
+
+def test_confirm_resolved_by_button(cfg, conn):
+    log = []
+    with TestClient(create_app(cfg, conn, turn_runner=confirm_runner(log))) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "text_input", "text": "close notepad"})
+        c = recv_until(ws, lambda m: m["type"] == "confirm")[-1]
+        assert c["text"] == "Close Notepad, sir?"
+        ws.send_json({"type": "confirm_reply", "id": c["id"], "ok": True})
+        seen = recv_until(ws, lambda m: m["type"] == "turn_end")
+        ctx.__exit__(None, None, None)
+    assert log == [True] and {"type": "confirm_done", "id": c["id"], "ok": True} in seen
+
+
+def test_confirm_resolved_by_voice_text(cfg, conn):
+    log = []
+    app = create_app(cfg, conn, turn_runner=confirm_runner(log))
+    with TestClient(app) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "text_input", "text": "close notepad"})
+        recv_until(ws, lambda m: m["type"] == "confirm")
+        app.state.hub.from_thread("confirm_heard", {"text": "Yes, go ahead."})
+        recv_until(ws, lambda m: m["type"] == "turn_end")
+        ctx.__exit__(None, None, None)
+    assert log == [True]
+
+
+def test_confirm_times_out_no(cfg, conn, monkeypatch):
+    from jarvis import app as app_mod
+    monkeypatch.setattr(app_mod, "BUTTON_WAIT_S", 0.1)
+    log = []
+    with TestClient(create_app(cfg, conn, turn_runner=confirm_runner(log))) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "text_input", "text": "close notepad"})
+        recv_until(ws, lambda m: m["type"] == "turn_end")
+        ctx.__exit__(None, None, None)
+    assert log == [False]
+
+
+def test_cancel_resolves_pending_confirm_false(cfg, conn):
+    log = []
+    app = create_app(cfg, conn, turn_runner=confirm_runner(log))
+    with TestClient(app) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "text_input", "text": "close notepad"})
+        recv_until(ws, lambda m: m["type"] == "confirm")
+        ws.send_json({"type": "cancel"})
+        recv_until(ws, lambda m: m["type"] == "turn_end")
+        ctx.__exit__(None, None, None)
+    assert log == ["cancelled"] and app.state.hub.pending == {}
+
+
+def test_undo_message_undoes_action(cfg, conn):
+    from jarvis import db
+    mid = db.add_memory(conn, "x")
+    aid = db.log_action(conn, "remember", {"text": "x"}, "ok", "done",
+                        {"kind": "delete_memory", "id": mid}, None)
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "undo", "id": aid})
+        m = recv_until(ws, lambda m: m["type"] == "action")[-1]
+        ws.send_json({"type": "undo", "id": aid})
+        b = recv_until(ws, lambda m: m["type"] == "banner")[-1]
+        ctx.__exit__(None, None, None)
+    assert m["status"] == "undone" and db.memories(conn) == [] and "undo" in b["text"].lower()
+
+
+def test_actions_sent_on_connect(cfg, conn):
+    from jarvis import db
+    db.log_action(conn, "remember", {"text": "x"}, "ok", "done", None, None)
+    with TestClient(create_app(cfg, conn)) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json(), ws.receive_json()
+            a = ws.receive_json()
+    assert a["type"] == "actions" and a["actions"][0]["tool"] == "remember"

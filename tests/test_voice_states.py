@@ -81,3 +81,33 @@ def test_text_input_idle_and_busy():
     for st in (State.LISTENING, State.THINKING, State.SPEAKING):
         f = fsm(st)  # the hub already stopped its own turn; only local audio stops here
         assert f.handle("text_input") == ["stop_audio"] and f.state is State.THINKING
+
+
+def test_confirm_listen_from_speaking_and_thinking():
+    for s in (State.SPEAKING, State.THINKING):
+        f = fsm(s)
+        assert f.handle("confirm_listen") == ["chime", "start_buffer"]
+        assert f.state is State.CONFIRMING
+
+
+def test_confirm_vad_end_transcribes_confirm():
+    for ev in ("vad_end", "hotkey_up", "timeout"):
+        f = fsm(State.CONFIRMING)
+        assert f.handle(ev) == ["transcribe_confirm"] and f.state is State.THINKING
+
+
+def test_confirm_silent_and_button_answer():
+    f = fsm(State.CONFIRMING)
+    assert f.handle("confirm_silent") == ["confirm_silent"] and f.state is State.THINKING
+    f = fsm(State.CONFIRMING)
+    assert f.handle("confirm_done") == ["stop_audio"] and f.state is State.THINKING
+
+
+def test_confirm_cancel_goes_idle():
+    f = fsm(State.CONFIRMING)
+    assert f.handle("cancel") == ["stop_audio"] and f.state is State.IDLE
+
+
+def test_wake_ignored_in_confirming():
+    f = fsm(State.CONFIRMING)
+    assert f.handle("wake") == [] and f.state is State.CONFIRMING

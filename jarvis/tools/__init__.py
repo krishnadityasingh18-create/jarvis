@@ -30,7 +30,7 @@ class Ctx:
     emit: Callable[[dict], Awaitable[None]]
     agent: str | None = None              # set when a sub-agent is calling
     allowed: list[str] | None = None      # the sub-agent's tool list
-    actions: list[str] = field(default_factory=list)   # "tool args → status" for history
+    actions: list[dict] = field(default_factory=list)   # {name, arguments, result} for history
 
 
 TOOLS: dict[str, Tool] = {}
@@ -65,7 +65,7 @@ def _short(args: dict) -> str:
 
 async def _log(ctx: Ctx, name: str, args: dict, result: str, status: str, undo) -> None:
     aid = db.log_action(ctx.conn, name, args, result, status, undo, ctx.agent)
-    ctx.actions.append(f"{name} {_short(args)}".strip() + f" → {status}")
+    ctx.actions.append({"name": name, "arguments": json.dumps(args), "result": result[:500]})
     await ctx.emit({"type": "action", **db.get_action(ctx.conn, aid)})
 
 

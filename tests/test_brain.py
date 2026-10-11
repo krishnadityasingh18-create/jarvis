@@ -264,17 +264,27 @@ async def test_five_step_cap_says_stopped(cfg, conn, monkeypatch):
     assert said == [brain.STOPPED]
 
 
-async def test_history_includes_actions_line(cfg, conn, monkeypatch):
-    db.add_message(conn, "assistant", "Opened it, sir.", actions="open_app chrome → done")
+async def test_history_replays_past_actions_as_tool_calls(cfg, conn, monkeypatch):
+    # Text notes like "(actions: ...)" get imitated by the model instead of calling tools,
+    # so past actions go back as real tool-call and tool-result messages.
     seen = []
-    monkeypatch.setattr(brain, "stream_reply", scripted([("route", "fast"), ("text", "Ok.")],
-                                                        seen=seen))
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), tc("remember", text="lab on Thursdays")],
+        [("route", "fast"), ("text", "Noted, sir.")],
+        [("route", "fast"), ("text", "Ok.")], seen=seen))
 
     async def speak(s):
         pass
+    await brain.run_turn(cfg, conn, "remember lab", "fast", noop_emit, speak)
     await brain.run_turn(cfg, conn, "again", "fast", noop_emit, speak)
-    assert {"role": "assistant", "content": "Opened it, sir.\n(actions: open_app chrome → done)"} \
-        in seen[0]["messages"]
+    msgs = seen[2]["messages"]
+    i = next(i for i, m in enumerate(msgs) if m.get("tool_calls"))
+    call = msgs[i]["tool_calls"][0]
+    assert call["function"] == {"name": "remember", "arguments": '{"text": "lab on Thursdays"}'}
+    assert msgs[i + 1] == {"role": "tool", "tool_call_id": call["id"],
+                           "content": "Remembered as [1]."}
+    assert msgs[i + 2] == {"role": "assistant", "content": "Noted, sir."}
+    assert not any("(actions" in str(m.get("content")) for m in msgs)
 
 
 async def test_memory_block_in_system_prompt(cfg, conn, monkeypatch):

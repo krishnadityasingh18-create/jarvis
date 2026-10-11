@@ -78,6 +78,8 @@ def main() -> None:
         hub.from_thread(name, payload)
 
     voice.on_event = on_event
+    from jarvis.tools import files
+    files.start_indexer(cfg, lambda text: on_event("banner", {"text": text}))
     voice.start()
     hook_hotkey(voice, cfg.ptt_key)
     threading.Thread(target=open_window, daemon=True).start()

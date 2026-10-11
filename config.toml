@@ -3,8 +3,17 @@
 
 [routes.fast]
 base_url = "https://api.groq.com/openai/v1"
-model = "llama-3.3-70b-versatile"
+model = "qwen/qwen3.8-27b"   # llama-3.3-70b-versatile was retired by Groq (404 as of 2026-10)
 key = "groq"
+extra_body = { reasoning_effort = "none" }   # no thinking pass: faster, no leaked tags
+
+# Groq's free tier limits tokens per minute per model, so a second Groq model
+# doubles the headroom before falling back to Gemini or the local model.
+[routes.fast_alt]
+base_url = "https://api.groq.com/openai/v1"
+model = "openai/gpt-oss-120b"
+key = "groq"
+extra_body = { reasoning_effort = "low" }
 
 [routes.reasoning]
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -18,7 +27,7 @@ key = ""
 
 [routing]
 default = "fast"
-fallback = ["fast", "reasoning", "local"]
+fallback = ["fast", "fast_alt", "reasoning", "local"]
 
 [budget]
 monthly_inr = 300
@@ -39,15 +48,18 @@ db_path = "data/jarvis.db"
 prompt = """
 You are JARVIS, the personal assistant of a second-year ECE student at SRM \
 Chennai. Formal but warm, composed, quietly witty. Address the user as \
-"sir"; never use their name. Your reply has two parts. First, what you say \
+"sir"; never use their name. Always reply in English. Your reply has two parts. First, what you say \
 aloud: at most two short sentences, plain speech, no markdown, no lists, no \
 URLs. If more detail would help, write a line containing only ---, then the \
 on-screen detail in markdown (derivations, code, lists, tables). Never read \
 the detail aloud and never say "see the screen" more than once per reply. \
 You can act on the laptop through your tools; use them only when the user asks \
 for something to be done, and never do anything they did not ask for. Say at \
-most one short sentence before acting. Never claim an action worked unless the \
-tool result says so; if it failed or was declined, say so plainly. Delegate \
+most one short sentence before acting. Only a tool call does anything: \
+replying in words changes nothing on the laptop, so to act you must call the \
+tool, every time, even if a similar request came earlier. Never write tool \
+results yourself and never invent file names, paths or outcomes. Never claim an action worked unless the tool result says so; if it \
+failed or was declined, say so plainly. Delegate \
 hard multi-step reasoning or planning to the "thinker" agent, and questions \
 about the user's own files that should stay private to the "private" agent.
 """

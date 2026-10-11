@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -6,10 +7,12 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from jarvis import brain, db
+from jarvis import brain, db, tools
 
 UI = Path(__file__).parent / "ui"
 ALLOWED_ORIGINS = {"http://127.0.0.1:8765", "http://localhost:8765"}
+VOICE_WAIT_S = 20     # the voice loop listens 8 s and always reports back; this is a backstop
+BUTTON_WAIT_S = 60    # no mic: wait this long for a click
 
 
 async def _no_speak(text: str) -> None:
@@ -25,6 +28,7 @@ class Hub:
         self.turn: asyncio.Task | None = None
         self.route = cfg.default_route
         self.loop: asyncio.AbstractEventLoop | None = None
+        self.pending: dict[str, asyncio.Future] = {}   # open confirmation questions
 
     def usage(self) -> dict:
         return {"type": "usage", "spent_inr": round(db.month_spend_inr(self.conn), 2),
@@ -44,7 +48,47 @@ class Hub:
         if msg["type"] == "turn_end":
             await self.broadcast(self.usage())
 
+    async def confirm(self, text: str) -> bool:
+        """Ask the user; resolved by a button, a spoken yes/no, a timeout or a cancel (no)."""
+        cid = uuid.uuid4().hex[:8]
+        fut = asyncio.get_running_loop().create_future()
+        self.pending[cid] = fut
+        voice_up = bool(self.voice and self.voice.available)
+        wait = VOICE_WAIT_S if voice_up else BUTTON_WAIT_S
+        ok = False
+        try:
+            await self.broadcast({"type": "confirm", "id": cid, "text": text, "seconds": wait})
+            if voice_up:
+                await self.broadcast({"type": "state", "state": "speaking"})
+                await self.voice.speak(text)
+                if not fut.done():
+                    self.voice.event("confirm_listen")
+            ok = await asyncio.wait_for(asyncio.shield(fut), wait)
+        except TimeoutError:
+            ok = False
+        finally:
+            self.pending.pop(cid, None)
+            await self.broadcast({"type": "confirm_done", "id": cid, "ok": ok})
+        return ok
+
+    def _answer(self, ok: bool, cid: str | None = None) -> None:
+        """Resolve the given question, or the oldest open one."""
+        for k, fut in list(self.pending.items()):
+            if (cid is None or k == cid) and not fut.done():
+                fut.set_result(ok)
+                return
+
+    async def undo(self, action_id: int) -> None:
+        try:
+            await asyncio.to_thread(tools.undo, self.conn, action_id)
+            await self.broadcast({"type": "action", **db.get_action(self.conn, action_id)})
+        except Exception as e:
+            await self.broadcast({"type": "banner", "text": f"Couldn't undo: {e}"})
+
     async def _stop_turn(self) -> None:
+        for fut in self.pending.values():   # an open question counts as "no"
+            if not fut.done():
+                fut.set_result(False)
         t, self.turn = self.turn, None
         if t and not t.done():
             t.cancel()
@@ -63,9 +107,10 @@ class Hub:
         await self.broadcast({"type": "user_text", "text": text})
         args = (self.cfg, self.conn, text, brain.pick_route(text, self.route), self.broadcast)
         if self.voice:
-            coro = self.turn_runner(*args, self.voice.speak, prepare=self.voice.prepare)
+            coro = self.turn_runner(*args, self.voice.speak, prepare=self.voice.prepare,
+                                    confirm=self.confirm)
         else:
-            coro = self.turn_runner(*args, _no_speak)
+            coro = self.turn_runner(*args, _no_speak, confirm=self.confirm)
         self.turn = asyncio.create_task(coro)
 
     async def cancel(self) -> None:
@@ -81,6 +126,10 @@ class Hub:
             coro = lambda: self.start_turn(payload["text"], typed=False)  # noqa: E731
         elif name == "cancel_turn":
             coro = self._stop_turn
+        elif name == "confirm_heard":
+            ok = tools.parse_yes_no(payload["text"])
+            self.loop.call_soon_threadsafe(self._answer, ok)
+            return
         else:  # state, banner
             coro = lambda: self.broadcast({"type": name, **payload})  # noqa: E731
         self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(coro()))
@@ -116,6 +165,7 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
         await sock.send_json({"type": "history", "messages": db.recent_messages(conn, 20),
                               "route": hub.route})
         await sock.send_json(hub.usage())
+        await sock.send_json({"type": "actions", "actions": db.recent_actions(conn, 30)})
         try:
             while True:
                 m = await sock.receive_json()
@@ -125,6 +175,12 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                     await hub.cancel()
                 elif m.get("type") == "set_route" and m.get("route") in cfg.routes:
                     hub.route = m["route"]
+                elif m.get("type") == "confirm_reply":
+                    hub._answer(bool(m.get("ok")), str(m.get("id")))
+                    if hub.voice:
+                        hub.voice.event("confirm_done")
+                elif m.get("type") == "undo" and isinstance(m.get("id"), int):
+                    await hub.undo(m["id"])
         except WebSocketDisconnect:
             hub.sockets.discard(sock)
 

@@ -16,9 +16,11 @@ class State(str, Enum):
     LISTENING = "listening"
     THINKING = "thinking"
     SPEAKING = "speaking"
+    CONFIRMING = "confirming"   # listening for "yes"/"no" to a confirmation question
 
 
-I, L, T, S = State.IDLE, State.LISTENING, State.THINKING, State.SPEAKING
+I, L, T, S, C = (State.IDLE, State.LISTENING, State.THINKING, State.SPEAKING,
+                 State.CONFIRMING)
 LISTEN = ["chime", "start_buffer"]
 
 # (state, event) -> (next state, actions). Anything missing is ignored.
@@ -38,6 +40,16 @@ _TABLE = {
     (T, "hotkey_down"): (L, ["cancel_turn"] + LISTEN),
     (S, "wake"): (L, ["cancel_turn"] + LISTEN),
     (S, "hotkey_down"): (L, ["cancel_turn"] + LISTEN),
+    # confirmation: the hub has spoken the question; listen for the answer, no wake word
+    (I, "confirm_listen"): (C, LISTEN),
+    (T, "confirm_listen"): (C, LISTEN),
+    (S, "confirm_listen"): (C, LISTEN),
+    (C, "vad_end"): (T, ["transcribe_confirm"]),
+    (C, "hotkey_up"): (T, ["transcribe_confirm"]),
+    (C, "timeout"): (T, ["transcribe_confirm"]),
+    (C, "hotkey_down"): (C, ["start_buffer"]),
+    (C, "confirm_silent"): (T, ["confirm_silent"]),
+    (C, "confirm_done"): (T, ["stop_audio"]),   # answered by button: drop any half-heard reply
 }
 
 
@@ -70,6 +82,7 @@ RATE = 16000
 FRAME = 1280                 # 80 ms at 16 kHz, what openWakeWord wants
 FRAME_MS = 80
 LISTEN_CAP_S = 15
+CONFIRM_CAP_S = 8
 BARGE_MS = 300
 DIDNT_CATCH = "Sorry sir, I didn't catch that."
 NO_MIC = "Voice off, text only"
@@ -186,17 +199,19 @@ class VoiceLoop:
                 self.event("wake")
                 return
         speech = self.vad.predict(pcm, frame_size=640) > 0.5
-        if state is State.LISTENING:
+        if state in (State.LISTENING, State.CONFIRMING):
             self._buf.append(f32)
             if speech:
                 self._heard, self._silence = True, 0
             else:
                 self._silence += FRAME_MS
+            confirming = state is State.CONFIRMING
             if self._heard and self._silence >= self.cfg.end_silence_ms and not self._held:
                 self.event("vad_end")
-            elif time.monotonic() - self._t0 > LISTEN_CAP_S:
+            elif time.monotonic() - self._t0 > (CONFIRM_CAP_S if confirming else LISTEN_CAP_S):
                 # nothing said after a (false) wake: don't feed 15 s of room noise to Whisper
-                self.event("timeout" if self._heard else "cancel")
+                self.event("timeout" if self._heard else
+                           "confirm_silent" if confirming else "cancel")
         elif state is State.SPEAKING:
             self._speech_ms = self._speech_ms + FRAME_MS if speech else 0
             if self._speech_ms >= BARGE_MS:
@@ -233,6 +248,20 @@ class VoiceLoop:
     def _do_transcribe(self) -> None:
         audio = np.concatenate(self._buf) if self._buf else np.zeros(0, np.float32)
         threading.Thread(target=self._transcribe, args=(audio, self._gen), daemon=True).start()
+
+    def _do_transcribe_confirm(self) -> None:
+        audio = np.concatenate(self._buf) if self._buf else np.zeros(0, np.float32)
+        gen = self._gen
+
+        def run():
+            text = self.transcribe(audio)
+            with self.lock:
+                if gen == self._gen:  # not answered by button or cancelled meanwhile
+                    self.on_event("confirm_heard", {"text": text})
+        threading.Thread(target=run, daemon=True).start()
+
+    def _do_confirm_silent(self) -> None:
+        self.on_event("confirm_heard", {"text": ""})
 
     def _transcribe(self, audio: np.ndarray, gen: int) -> None:
         text = self.transcribe(audio)
