@@ -2,6 +2,7 @@
 with the user's standing boundaries, and the result is committed (undo = git revert)."""
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -44,9 +45,32 @@ def _git(repo: Path, *args: str) -> str:
     return r.stdout.strip()
 
 
+def _repos(cfg, max_depth: int = 4) -> list[Path]:
+    """Git projects under the roots (not in hidden or excluded folders)."""
+    found, skip = [], set(cfg.file_exclude)
+    for root in cfg.file_roots:
+        root = Path(root)
+        for dirpath, dirnames, _ in os.walk(root):
+            d = Path(dirpath)
+            if (d / ".git").exists() and d != root:
+                found.append(d)
+            if len(d.relative_to(root).parts) >= max_depth:
+                dirnames[:] = []
+            dirnames[:] = [n for n in dirnames if n not in skip and not n.startswith(".")]
+    return found
+
+
 def _repo(project: str, cfg) -> Path:
     p = Path(project).expanduser()
-    if not p.is_absolute() or not inside_roots(p, cfg.file_roots, cfg.file_exclude):
+    if not (p.is_absolute() and p.is_dir()):   # a name, or a guessed path: find it by name
+        repos = _repos(cfg)
+        hits = [r for r in repos if r.name.lower() == p.name.lower()]
+        if len(hits) != 1:
+            names = ", ".join(sorted({r.name for r in (hits or repos)}))
+            raise ValueError((f"several projects are called {p.name}: " if hits else
+                              f"no git project called {p.name}; projects: ") + names)
+        p = hits[0]
+    if not inside_roots(p, cfg.file_roots, cfg.file_exclude):
         raise ValueError("that project is outside the folders I may use")
     p = p.resolve()
     if hidden(p, cfg.file_roots):
@@ -103,7 +127,7 @@ def _work(repo: Path, task: str, holder: dict) -> str:
       "full permissions inside the user's rules, commits its changes, and reports back.",
       exports=True,
       task="string: the complete request, in the user's words plus any detail they gave",
-      project="string: full path of the project folder (a git repository)")
+      project="string: the project folder name (e.g. motor-fault-detection) or full path")
 async def ask_claude(ctx, task, project):
     repo = _repo(project, ctx.cfg)
     await ctx.emit({"type": "agent", "agent": "Claude"})

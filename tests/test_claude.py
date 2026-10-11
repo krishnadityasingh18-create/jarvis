@@ -107,3 +107,19 @@ async def test_jarvis_still_writes_notes(cfg, conn, tmp_path):
     r = await run(make_ctx(cfg, conn), call("create_file", path=str(tmp_path / "todo.md"),
                                             content="x"))
     assert r.startswith("Created")
+
+
+async def test_project_found_by_name(cfg, conn, repo):
+    r = await run(make_ctx(cfg, conn), call("ask_claude", task="add hello", project="PROJ"))
+    assert "Added hello.txt" in r and (repo / "hello.txt").exists()
+
+
+async def test_wrong_path_falls_back_to_the_name(cfg, conn, repo):
+    wrong = str(repo.parent / "OneDrive" / "Documents" / "proj")
+    r = await run(make_ctx(cfg, conn), call("ask_claude", task="add hello", project=wrong))
+    assert (repo / "hello.txt").exists(), r
+
+
+async def test_unknown_project_lists_candidates(cfg, conn, repo):
+    r = await run(make_ctx(cfg, conn), call("ask_claude", task="x", project="nonexistent"))
+    assert r.startswith("Error") and "proj" in r
