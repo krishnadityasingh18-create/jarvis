@@ -141,3 +141,11 @@ enabled = true
 time = "07:30"          # morning briefing, once a day, while JARVIS is running
 latitude = 12.82        # SRM Kattankulathur (weather)
 longitude = 80.04
+
+[remote]
+# The away channel (Phase 4). Fill these in after setting up Vapi and n8n; see README.
+# my_number = "+91XXXXXXXXXX"            # your phone, for call_me
+# vapi_phone_id = ""                       # Vapi phone number id (Twilio number)
+# vapi_assistant_id = ""                   # the Vapi assistant that uses JARVIS as its Custom LLM
+# vapi_outbound_assistant_id = ""          # a separate Vapi assistant for calling other people
+# whatsapp_webhook = "https://…/webhook/…" # your n8n workflow that sends WhatsApp messages

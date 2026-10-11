@@ -6,13 +6,21 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from jarvis import brain, db, remote, tools
 
 UI = Path(__file__).parent / "ui"
 ALLOWED_ORIGINS = {"http://127.0.0.1:8765", "http://localhost:8765"}
+TUNNEL_HEADERS = ("cf-connecting-ip", "x-forwarded-for", "forwarded", "x-real-ip",
+                  "ngrok-trace-id")
+
+
+def _tunnelled(headers) -> bool:
+    return any(h in headers for h in TUNNEL_HEADERS)
+
+
 VOICE_WAIT_S = 20     # the voice loop listens 8 s and always reports back; this is a backstop
 BUTTON_WAIT_S = 60    # no mic: wait this long for a click
 
@@ -199,6 +207,15 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     app.state.hub = hub
     remote.routes(app, hub)   # the away channel (token-protected); the UI stays below
 
+    @app.middleware("http")
+    async def desk_only(request, call_next):
+        # Through a tunnel everything looks local, and a script can fake any Origin; but
+        # tunnels always add a forwarding header the outside can't remove. Such requests may
+        # only reach the token-protected away-channel API, never the desk UI.
+        if _tunnelled(request.headers) and request.url.path not in remote.PATHS:
+            return JSONResponse({"detail": "the desk is local-only"}, status_code=403)
+        return await call_next(request)
+
     @app.get("/")
     async def index():
         return FileResponse(UI / "index.html")
@@ -209,7 +226,7 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     async def ws(sock: WebSocket):
         # WebSockets bypass CORS: refuse pages from other sites (browsers always send Origin).
         origin = sock.headers.get("origin")
-        if origin and origin not in ALLOWED_ORIGINS:
+        if (origin and origin not in ALLOWED_ORIGINS) or _tunnelled(sock.headers):
             await sock.close(code=1008)
             return
         await sock.accept()

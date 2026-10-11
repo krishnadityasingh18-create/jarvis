@@ -48,6 +48,28 @@ def accounts_cli(args: list[str]) -> None:
         print("usage: python -m jarvis accounts connect google | accounts list")
 
 
+def remote_cli(args: list[str]) -> None:
+    import secrets
+    import shutil
+    import subprocess as sp
+    if args == ["token"]:
+        token = secrets.token_urlsafe(32)
+        set_key("remote_token", token)
+        print("New remote token (saved to Windows Credential Manager; the old one stops working).")
+        print("Paste it into Vapi (Custom LLM → API key) and n8n (Authorization: Bearer <token>):")
+        print(token)
+    elif args == ["tunnel"]:
+        exe = shutil.which("cloudflared")
+        if not exe:
+            raise SystemExit("Install cloudflared first: winget install Cloudflare.cloudflared")
+        print("Starting a Cloudflare quick tunnel to JARVIS (Ctrl+C to stop). Use the "
+              "https://….trycloudflare.com address it prints:")
+        print("  Vapi Custom LLM URL:  <address>/v1      n8n webhook target: <address>/api/message")
+        sp.run([exe, "tunnel", "--url", URL])
+    else:
+        print("usage: python -m jarvis remote token | remote tunnel")
+
+
 def open_window() -> None:
     for _ in range(60):
         try:
@@ -78,6 +100,8 @@ def hook_hotkey(voice, key: str) -> None:
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["remote"]:
+        return remote_cli(sys.argv[2:])
     if sys.argv[1:2] == ["accounts"]:
         return accounts_cli(sys.argv[2:])
     if sys.argv[1:2] == ["keys"]:

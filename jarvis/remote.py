@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from jarvis.config import get_key
 
+PATHS = ("/api/message", "/v1/chat/completions")
 PER_MINUTE = 30
 MAX_TEXT = 2000
 _hits: deque = deque()

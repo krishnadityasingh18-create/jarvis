@@ -106,3 +106,19 @@ async def test_ask_claude_line_is_desk_only(cfg, conn, monkeypatch):
     await brain.run_turn(cfg, conn, "ask claude to delete my repo", "fast", noop_emit, speak,
                          channel="whatsapp")
     assert seen    # went to the normal brain, not straight to Claude Code
+
+
+
+@pytest.mark.parametrize("header", ["CF-Connecting-IP", "X-Forwarded-For"])
+def test_tunnelled_requests_only_reach_the_remote_api(cfg, conn, header):
+    import pytest as _pytest
+    from starlette.websockets import WebSocketDisconnect
+    via = {header: "203.0.113.9"}
+    with client(cfg, conn, []) as c:
+        assert c.get("/", headers=via).status_code == 403
+        assert c.get("/ui/index.html", headers=via).status_code == 403
+        with _pytest.raises(WebSocketDisconnect):
+            with c.websocket_connect("/ws", headers={**via, "origin": "http://127.0.0.1:8765"}) as ws:
+                ws.receive_json()
+        assert c.post("/api/message", json={"text": "hi"}, headers={**via, **AUTH}).status_code == 200
+        assert c.get("/").status_code == 200          # the desk itself still works

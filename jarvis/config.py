@@ -52,6 +52,7 @@ class Config:
     briefing_time: time = time(7, 30)
     latitude: float = 12.82     # SRM Kattankulathur, for the weather
     longitude: float = 80.04
+    remote: dict = field(default_factory=dict)   # [remote]: numbers, Vapi ids, n8n webhook
     app_dir: Path = Path(__file__).resolve().parents[1]   # the JARVIS folder: never written to
 
 
@@ -82,6 +83,7 @@ def load_config(path: Path = Path("config.toml")) -> Config:
         briefing_time=time.fromisoformat(t.get("briefing", {}).get("time", "07:30")),
         latitude=t.get("briefing", {}).get("latitude", 12.82),
         longitude=t.get("briefing", {}).get("longitude", 80.04),
+        remote=t.get("remote", {}),
     )
 
 
