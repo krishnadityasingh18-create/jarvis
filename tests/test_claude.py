@@ -123,3 +123,10 @@ async def test_wrong_path_falls_back_to_the_name(cfg, conn, repo):
 async def test_unknown_project_lists_candidates(cfg, conn, repo):
     r = await run(make_ctx(cfg, conn), call("ask_claude", task="x", project="nonexistent"))
     assert r.startswith("Error") and "proj" in r
+
+
+async def test_existing_non_repo_folder_with_a_projects_name_uses_the_project(cfg, conn, repo):
+    stray = repo.parent / "Documents" / "proj"     # the model made an empty folder there
+    stray.mkdir(parents=True)
+    r = await run(make_ctx(cfg, conn), call("ask_claude", task="add hello", project=str(stray)))
+    assert (repo / "hello.txt").exists() and not (stray / "hello.txt").exists(), r

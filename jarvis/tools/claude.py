@@ -62,7 +62,8 @@ def _repos(cfg, max_depth: int = 4) -> list[Path]:
 
 def _repo(project: str, cfg) -> Path:
     p = Path(project).expanduser()
-    if not (p.is_absolute() and p.is_dir()):   # a name, or a guessed path: find it by name
+    # A name, or a guessed path (even one the model just created): find the project by name.
+    if not (p.is_absolute() and (p / ".git").exists()):
         repos = _repos(cfg)
         hits = [r for r in repos if r.name.lower() == p.name.lower()]
         if len(hits) != 1:
@@ -127,7 +128,8 @@ def _work(repo: Path, task: str, holder: dict) -> str:
       "full permissions inside the user's rules, commits its changes, and reports back.",
       exports=True,
       task="string: the complete request, in the user's words plus any detail they gave",
-      project="string: the project folder name (e.g. motor-fault-detection) or full path")
+      project="string: the project folder NAME as the user said it "
+              "(e.g. motor-fault-detection); never guess a path")
 async def ask_claude(ctx, task, project):
     repo = _repo(project, ctx.cfg)
     await ctx.emit({"type": "agent", "agent": "Claude"})
