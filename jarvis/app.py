@@ -9,7 +9,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from jarvis import brain, db, tools
+from jarvis import brain, db, remote, tools
 
 UI = Path(__file__).parent / "ui"
 ALLOWED_ORIGINS = {"http://127.0.0.1:8765", "http://localhost:8765"}
@@ -197,6 +197,7 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
 
     app = FastAPI(lifespan=lifespan)
     app.state.hub = hub
+    remote.routes(app, hub)   # the away channel (token-protected); the UI stays below
 
     @app.get("/")
     async def index():

@@ -229,6 +229,12 @@ def _plan_line(plan: str, tainted: bool) -> str:
     return f"\n\nToday's plan: {plan}"
 
 
+VIA = {"phone": "a phone call", "whatsapp": "WhatsApp"}
+REMOTE_NOTE = ("\n\nYou are talking to the user over {via}, away from the desk. Keep replies "
+               "short and spoken; there is no screen. Anything that needs the user's approval "
+               "can't be approved from here: say it needs them at the desk.")
+
+
 _BRIEFING = re.compile(r"\b(brief me|(morning|daily|today'?s) briefing)\b", re.IGNORECASE)
 
 
@@ -274,10 +280,14 @@ async def _refuse(question: str) -> bool:
 
 async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: Speak,
                    prepare: Callable[[str], None] | None = None,
-                   confirm: Callable[[str], Awaitable[bool]] | None = None) -> None:
+                   confirm: Callable[[str], Awaitable[bool]] | None = None,
+                   channel: str = "desk") -> None:
+    """channel: "desk" (this laptop), or "phone"/"whatsapp" (the away channel, where nothing
+    can be approved and Claude Code isn't available)."""
     global _warned_on
+    remote = channel != "desk"
     db.add_message(conn, "user", user_text)
-    if (prompt := direct_claude_prompt(user_text)) is not None:
+    if not remote and (prompt := direct_claude_prompt(user_text)) is not None:
         return await _direct_claude(cfg, conn, prompt, emit, speak)
     from jarvis.tools import briefing as briefing_tool
     from jarvis.tools import day
@@ -286,10 +296,14 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
               + f"\n\nNow: {t:%A %d %B %Y, %H:%M} (local time)."
               + (_plan_line(plan, day.today_plan_tainted(conn))
                  if (plan := day.today_plan(conn)) else "")
-              + (f"\n\n{mb}" if (mb := memory_block(conn)) else ""))
+              + (f"\n\n{mb}" if (mb := memory_block(conn)) else "")
+              + (REMOTE_NOTE.format(via=VIA.get(channel, channel)) if remote else ""))
     messages = [{"role": "system", "content": system}] + _history(conn,
                                                                    redact=True)
-    ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit)
+    # remote words arrive over the internet: treat them like outside text (side effects need
+    # an approval that can't be given from there)
+    ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit, tainted=remote)
+    tool_names = [n for n in tools.TOOLS if not (remote and n == "ask_claude")]
 
     spoken: list[str] = []
     screen: list[str] = []
@@ -359,7 +373,7 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
                      "function": {"name": "daily_briefing", "arguments": "{}"}}]},
                     {"role": "tool", "tool_call_id": "brief_0", "content": result},
                     {"role": "system", "content": briefing_tool.COMPOSE}]
-            await agent_loop(ctx, messages, ui_route, list(tools.TOOLS), on_event=on_event)
+            await agent_loop(ctx, messages, ui_route, tool_names, on_event=on_event)
         except StreamBroken:
             await say(LOST)
         except Exception as e:  # AllRoutesFailed, or anything unexpected
