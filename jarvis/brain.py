@@ -247,7 +247,7 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
         if kind == "route":
             route = value
             await emit({"type": "route", "route": value})
-            if value != ui_route and not banner_shown:
+            if value != ui_route and not banner_shown and not ctx.private:
                 banner_shown = True
                 await emit({"type": "banner",
                             "text": f"{ui_route} unavailable, answered via {value}"})

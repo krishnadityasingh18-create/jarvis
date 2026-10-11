@@ -139,3 +139,18 @@ async def test_content_private_off_keeps_cloud(cfg, conn, indexed, monkeypatch):
         pass
     await brain.run_turn(cfg, conn, "notes", "fast", noop_emit, speak)
     assert seen[1]["route"] == "fast"
+
+
+async def test_private_switch_is_not_reported_as_an_outage(cfg, conn, indexed, monkeypatch):
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), tc("search_notes", query="buck")],
+        [("route", "local"), ("text", "Buck notes, sir.")]))
+    events = []
+
+    async def emit(m):
+        events.append(m)
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "notes on buck", "fast", emit, speak)
+    assert not [e for e in events if e["type"] == "banner"]

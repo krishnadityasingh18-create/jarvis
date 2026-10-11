@@ -93,7 +93,8 @@ def _walk(roots, exclude, skip):
             if any(Path(dirpath).resolve().is_relative_to(s) for s in skip):
                 dirnames[:] = []
                 continue
-            dirnames[:] = [d for d in dirnames if d not in names]
+            # hidden folders hold tool data (caches, snapshots), not notes
+            dirnames[:] = [d for d in dirnames if d not in names and not d.startswith(".")]
             for f in filenames:
                 ext = os.path.splitext(f)[1].lower()
                 if ext not in DOC_EXT or f.startswith(("~$", ".~")):   # Office lock files

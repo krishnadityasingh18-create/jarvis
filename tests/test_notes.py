@@ -151,3 +151,12 @@ def test_index_skips_html_and_huge_code(tmp_path, cfg, conn):
     index(tmp_path, cfg)
     names = {Path(r[0]).name for r in conn.execute("SELECT path FROM docs")}
     assert "big_notes.md" in names and not names & {"class_lcd.html", "build.js"}
+
+
+def test_index_skips_hidden_folders(tmp_path, cfg, conn):
+    home = tmp_path / "home"
+    make_docs(home)
+    (home / ".playwright-mcp").mkdir()
+    (home / ".playwright-mcp" / "page.md").write_text("snapshot of a web page")
+    index(tmp_path, cfg)
+    assert not conn.execute("SELECT 1 FROM docs WHERE path LIKE '%page.md'").fetchone()
