@@ -122,3 +122,33 @@ def test_tunnelled_requests_only_reach_the_remote_api(cfg, conn, header):
                 ws.receive_json()
         assert c.post("/api/message", json={"text": "hi"}, headers={**via, **AUTH}).status_code == 200
         assert c.get("/").status_code == 200          # the desk itself still works
+
+
+
+def test_slow_phone_turn_gets_a_filler_first(cfg, conn, monkeypatch):
+    import asyncio as _asyncio
+    monkeypatch.setattr(remote, "FILLER_AFTER_S", 0.1)
+
+    async def slow(cfg, conn, text, route, emit, speak, **kw):
+        await _asyncio.sleep(0.4)
+        await emit({"type": "spoken_sentence", "text": "Done."})
+        await emit({"type": "turn_end"})
+    body = {"stream": True, "messages": [{"role": "user", "content": "hi"}]}
+    with TestClient(create_app(cfg, conn, turn_runner=slow)) as c:
+        r = c.post("/v1/chat/completions", json=body, headers=AUTH)
+    deltas = [json.loads(ln[6:])["choices"][0]["delta"].get("content", "")
+              for ln in r.text.splitlines() if ln.startswith("data: {")]
+    assert "".join(deltas) == remote.FILLER + " Done."
+
+
+def test_remote_token_cli_prints_on_a_plain_console(monkeypatch, capsys):
+    import io
+    import sys
+    from jarvis import __main__ as cli
+    saved = {}
+    monkeypatch.setattr(cli, "set_key", lambda n, v: saved.update({n: v}))
+    out = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", out)
+    cli.remote_cli(["token"])
+    out.flush()
+    assert saved["remote_token"] in out.buffer.getvalue().decode("cp1252")

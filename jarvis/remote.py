@@ -14,6 +14,8 @@ from jarvis.config import get_key
 
 PATHS = ("/api/message", "/v1/chat/completions")
 PER_MINUTE = 30
+FILLER = "One moment, sir."
+FILLER_AFTER_S = 2.5   # silence on a phone line feels like a dropped call
 MAX_TEXT = 2000
 _hits: deque = deque()
 
@@ -104,7 +106,14 @@ def routes(app, hub) -> None:
         async def stream():
             first = True
             try:
-                while (s := await q.get()) is not None:
+                while True:
+                    try:
+                        s = await (asyncio.wait_for(q.get(), FILLER_AFTER_S) if first
+                                   else q.get())
+                    except TimeoutError:
+                        s = FILLER   # tools or a slow model: say something now
+                    if s is None:
+                        break
                     yield chunk({"role": "assistant", "content": s} if first
                                 else {"content": " " + s})
                     first = False
