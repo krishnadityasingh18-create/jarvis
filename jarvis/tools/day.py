@@ -40,7 +40,7 @@ def today_plan(conn) -> str | None:
     return row[0] if row else None
 
 
-@tool("Add a class to the user's weekly timetable.",
+@tool(local_only=True, description="Add a class to the user's weekly timetable.",
       day="string: weekday, e.g. Monday", start="string: HH:MM", end="string: HH:MM",
       subject="string: the subject", room="?string: room or place")
 def add_class(ctx, day, start, end, subject, room=""):
@@ -51,7 +51,8 @@ def add_class(ctx, day, start, end, subject, room=""):
                                                           "table": "timetable", "id": rid}
 
 
-@tool("Remove a class from the timetable by its [id].", class_id="integer: the class id")
+@tool(local_only=True, description="Remove a class from the timetable by its [id].",
+      class_id="integer: the class id")
 def remove_class(ctx, class_id):
     row = _row(ctx.conn, "timetable", class_id)
     ctx.conn.execute("DELETE FROM timetable WHERE id=?", (row["id"],))
@@ -85,7 +86,7 @@ def _due(due: str) -> str:
         return due
 
 
-@tool("Add a task or deadline.", title="string: what to do",
+@tool(local_only=True, description="Add a task or deadline.", title="string: what to do",
       due="?string: due date YYYY-MM-DD, if there is one")
 def add_task(ctx, title, due=""):
     if due:
@@ -95,7 +96,7 @@ def add_task(ctx, title, due=""):
         {"kind": "delete_row", "table": "tasks", "id": rid}
 
 
-@tool("Mark a task as done by its [id].", task_id="integer: the task id")
+@tool(local_only=True, description="Mark a task as done by its [id].", task_id="integer: the task id")
 def complete_task(ctx, task_id):
     row = _row(ctx.conn, "tasks", task_id)
     ctx.conn.execute("UPDATE tasks SET done=1 WHERE id=?", (row["id"],))
@@ -120,7 +121,7 @@ def list_tasks(ctx):
     return tasks_text(ctx.conn) or "No open tasks.", None
 
 
-@tool("Set a reminder that JARVIS speaks at the given time.",
+@tool(local_only=True, description="Set a reminder that JARVIS speaks at the given time.",
       at="string: local date and time, YYYY-MM-DDTHH:MM", text="string: what to remind")
 def remind(ctx, at, text):
     try:
@@ -135,7 +136,7 @@ def remind(ctx, at, text):
         {"kind": "delete_row", "table": "reminders", "id": rid}
 
 
-@tool("Cancel a reminder by its [id].", reminder_id="integer: the reminder id")
+@tool(local_only=True, description="Cancel a reminder by its [id].", reminder_id="integer: the reminder id")
 def cancel_reminder(ctx, reminder_id):
     row = _row(ctx.conn, "reminders", reminder_id)
     ctx.conn.execute("DELETE FROM reminders WHERE id=?", (row["id"],))
@@ -143,7 +144,7 @@ def cancel_reminder(ctx, reminder_id):
                                                         "table": "reminders", "row": row}
 
 
-@tool("Save today's plan (the whole plan, replacing the previous one). Use it after a "
+@tool(local_only=True, description="Save today's plan (the whole plan, replacing the previous one). Use it after a "
       "briefing and whenever the user changes the plan.", text="string: the full plan")
 def set_plan(ctx, text):
     day = now().date().isoformat()

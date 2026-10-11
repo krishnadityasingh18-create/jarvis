@@ -26,6 +26,7 @@ class Tool:
     private: bool = False     # returns file contents: the rest of the turn stays on `local`
     untrusted: bool = False   # returns outside text that may carry instructions: taints the turn
     exports: bool = False     # its input leaves the laptop (internet, or cloud prompts)
+    local_only: bool = False  # only changes JARVIS's own undoable records (plan, tasks...)
     limit: int = MAX_RESULT   # result size cap (characters)
 
 
@@ -47,7 +48,7 @@ TOOLS: dict[str, Tool] = {}
 
 def tool(description: str, confirm: bool = False, describe=None, readonly: bool = False,
          private: bool = False, untrusted: bool = False, max_chars: int = MAX_RESULT,
-         exports: bool = False,
+         exports: bool = False, local_only: bool = False,
          **params: str):
     """Register fn as a tool. params: name="type: description"; a leading '?' makes it optional."""
     def wrap(fn):
@@ -62,6 +63,7 @@ def tool(description: str, confirm: bool = False, describe=None, readonly: bool 
                                   {"type": "object", "properties": props, "required": required},
                                   confirm=confirm, describe=describe, readonly=readonly,
                                   private=private, untrusted=untrusted, exports=exports,
+                                  local_only=local_only,
                                   limit=max_chars)
         return fn
     return wrap
@@ -123,7 +125,7 @@ async def run(ctx: Ctx, call: dict) -> str:
         return (f"Error: this request used the user's private files, so {name} can't run in "
                 "it: nothing from it may reach the internet or cloud models. The user can ask "
                 "for that separately.")
-    if t.confirm or ((ctx.agent or ctx.tainted) and not t.readonly):
+    if t.confirm or (ctx.agent and not t.readonly) or             (ctx.tainted and not t.readonly and not t.local_only):
         try:  # describe may resolve the target (e.g. the window) and fail before we ask
             phrase = t.describe(args) if t.describe else f"run {name} {_short(args)}".strip()
         except Exception as e:

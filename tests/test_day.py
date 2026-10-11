@@ -83,3 +83,21 @@ async def test_prompt_has_now_and_plan(cfg, conn, monkeypatch):
     await brain.run_turn(cfg, conn, "hi", "fast", noop_emit, speak)
     system = seen[0]["messages"][0]["content"]
     assert "Now: Monday 12 October 2026, 07:30" in system and "Today's plan: gym at 6" in system
+
+
+
+async def test_day_tools_dont_ask_in_a_tainted_turn(cfg, conn):
+    # a briefing reads email/GitHub text, which taints the turn; saving the plan it proposes
+    # (local, undoable) must not need a yes every morning
+    ctx = make_ctx(cfg, conn, answer=False)
+    ctx.tainted = True
+    for c in (call("set_plan", text="9 Physics"), call("add_task", title="x"),
+              call("remind", at="2026-10-12T09:15", text="y")):
+        assert not (await run(ctx, c)).startswith("The user declined"), c["name"]
+    assert ctx.asked == []
+
+
+async def test_memory_still_asks_in_a_tainted_turn(cfg, conn):
+    ctx = make_ctx(cfg, conn, answer=False)
+    ctx.tainted = True
+    assert await run(ctx, call("remember", text="injected")) == "The user declined."
