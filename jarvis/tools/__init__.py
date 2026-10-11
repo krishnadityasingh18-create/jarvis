@@ -6,6 +6,7 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from jarvis import db
 
@@ -150,6 +151,8 @@ def undo(conn, action_id: int) -> str:
         db.delete_memory(conn, u["id"])
     elif u["kind"] == "restore_memory":
         db.restore_memory(conn, u["id"], u["text"])
+    elif u["kind"] in edit.KINDS:
+        edit.undo(u, Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent)
     else:
         from jarvis.tools import windows
         windows.undo(u)
@@ -189,4 +192,4 @@ def undo_last(ctx):
     return "There is nothing recent to undo.", None
 
 
-from jarvis.tools import apps, delegate, files, memory, notes, windows  # noqa: E402,F401  (registers their tools)
+from jarvis.tools import apps, delegate, edit, files, memory, notes, windows  # noqa: E402,F401  (registers their tools)
