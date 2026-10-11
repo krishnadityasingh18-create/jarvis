@@ -132,10 +132,14 @@ ollama create jarvis-local -f Modelfile
   changed files are re-read.
   - Tool and build clutter is skipped (`content_exclude` in `config.toml`); those
     files can still be found by name.
-  - **Privacy:** once JARVIS reads inside a file, the rest of that answer comes
-    from the local model only. Cloud models never see your file contents, and
-    later questions to cloud models see "[kept on this laptop]" instead. Set
-    `content_private = false` to allow cloud models.
+  - **Privacy (`content_private` in `config.toml`):** currently `false`, so
+    passages JARVIS reads from your files go to the cloud model answering
+    (Groq or Gemini). That gives smarter answers, but your file text leaves the
+    laptop.
+    - Set it to `true` and, once JARVIS reads inside a file, the rest of that
+      answer comes from the local model only.
+    - Private mode is weaker: the small local model once claimed an edit it
+      never made.
 - **Changing files:** JARVIS can create files and folders, overwrite or edit text
   files, and move, rename or delete anything in your home folder.
   - **Nothing is permanent.** A deleted file, or the old version of an edited

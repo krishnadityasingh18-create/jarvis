@@ -15,7 +15,7 @@ def test_config_agents_and_files():
 
 def test_config_content_settings():
     c = load_config(Path("config.toml"))
-    assert c.content_private is True and "My project" in c.content_exclude
+    assert c.content_private is False and "My project" in c.content_exclude
     assert (c.app_dir / "jarvis" / "brain.py").exists()
     assert c.routes["local"].model == "jarvis-local"
     r = c.agents["researcher"]

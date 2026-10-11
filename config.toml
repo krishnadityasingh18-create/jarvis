@@ -124,4 +124,4 @@ content_exclude = ["My project", ".claude", ".vscode", ".platformio", ".codeium"
                    "Library", "build", "dist", ".idea", ".matplotlib", ".ipython", ".nuget",
                    ".dotnet", ".android", ".gradle", ".m2", ".npm", ".conda", "anaconda3",
                    "miniconda3", "libraries"]
-content_private = true  # file contents only ever go to the local model
+content_private = false # true: file contents only ever go to the local model (private, weaker)

@@ -9,6 +9,11 @@ from tests.test_notes import fake_embed, make_docs, make_pdf
 from tests.test_tools import call, make_ctx
 
 
+@pytest.fixture(autouse=True)
+def private_mode(cfg):
+    cfg.content_private = True   # these tests are about private mode, whatever config.toml says
+
+
 @pytest.fixture
 def indexed(tmp_path, cfg, conn, monkeypatch):
     home = tmp_path / "home"
