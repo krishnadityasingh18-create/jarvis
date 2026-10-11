@@ -90,7 +90,9 @@ ask_claude, naming the project folder; then tell the user what it did. For \
 how to present it). Work out exact times for reminders and deadlines from "Now" \
 before calling remind or add_task. When the user changes today's plan, call \
 set_plan with the whole updated plan. Never send email: gmail_draft only saves \
-a draft for the user to send.
+a draft for the user to send. For hardware, use list_devices and \
+device_command with exactly the listed commands; if the user says stop, stop \
+at once.
 """
 
 [agents.thinker]
@@ -149,3 +151,27 @@ longitude = 80.04
 # vapi_assistant_id = ""                   # the Vapi assistant that uses JARVIS as its Custom LLM
 # vapi_outbound_assistant_id = ""          # a separate Vapi assistant for calling other people
 # whatsapp_webhook = "https://…/webhook/…" # your n8n workflow that sends WhatsApp messages
+
+# Hardware (Phase 5). A device is data: JARVIS only sends the commands listed here.
+# confirm = true asks first (anything that moves or powers hardware); stop/off never ask.
+[[devices]]
+name = "motor rig"            # the motor-fault-detection ESP32 test rig
+transport = "serial"
+port = "auto"                 # or "COM5"; auto = the single USB serial device plugged in
+baud = 921600
+[devices.commands]
+ping = { send = "PING", reply = true }
+info = { send = "INFO", reply = true }
+start = { send = "START", confirm = true, undo = "stop" }
+stop = { send = "STOP" }
+speed = { send = "PWM {value}", confirm = true, min = 0, max = 1023 }
+
+# An MQTT example (needs a broker such as Mosquitto):
+# [[devices]]
+# name = "desk lamp"
+# transport = "mqtt"
+# host = "localhost"
+# topic = "home/desk_lamp/set"
+# [devices.commands]
+# on = { send = "ON", confirm = true, undo = "off" }
+# off = { send = "OFF" }

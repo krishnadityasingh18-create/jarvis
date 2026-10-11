@@ -27,6 +27,9 @@ class Tool:
     untrusted: bool = False   # returns outside text that may carry instructions: taints the turn
     exports: bool = False     # its input leaves the laptop (internet, or cloud prompts)
     local_only: bool = False  # only changes JARVIS's own undoable records (plan, tasks...)
+    # per-call decisions (e.g. hardware: "start" asks, "stop" never does)
+    needs_confirm: Callable[[object, dict], bool] | None = None
+    remote_ok: Callable[[object, dict], bool] | None = None
     limit: int = MAX_RESULT   # result size cap (characters)
 
 
@@ -49,7 +52,7 @@ TOOLS: dict[str, Tool] = {}
 
 def tool(description: str, confirm: bool = False, describe=None, readonly: bool = False,
          private: bool = False, untrusted: bool = False, max_chars: int = MAX_RESULT,
-         exports: bool = False, local_only: bool = False,
+         exports: bool = False, local_only: bool = False, needs_confirm=None, remote_ok=None,
          **params: str):
     """Register fn as a tool. params: name="type: description"; a leading '?' makes it optional."""
     def wrap(fn):
@@ -64,7 +67,8 @@ def tool(description: str, confirm: bool = False, describe=None, readonly: bool 
                                   {"type": "object", "properties": props, "required": required},
                                   confirm=confirm, describe=describe, readonly=readonly,
                                   private=private, untrusted=untrusted, exports=exports,
-                                  local_only=local_only,
+                                  local_only=local_only, needs_confirm=needs_confirm,
+                                  remote_ok=remote_ok,
                                   limit=max_chars)
         return fn
     return wrap
@@ -122,9 +126,16 @@ async def run(ctx: Ctx, call: dict) -> str:
         return "Error: the tool arguments were not valid JSON."
     # Sub-agents and tainted turns ask before anything that changes something; looking
     # (search, read) doesn't ask: a researcher asking before every search was unusable.
+    try:
+        dynamic = t.needs_confirm(ctx, args) if t.needs_confirm else None
+        remote_ok = bool(t.remote_ok and t.remote_ok(ctx, args))
+    except Exception as e:   # e.g. an unknown device: say so before asking anything
+        result = f"Error: {e}"
+        await _log(ctx, name, args, result, "failed", None)
+        return result
     if ctx.remote:
         allow = (getattr(ctx.cfg, "remote", {}) or {}).get("allow", [])
-        if not t.readonly and name not in allow:
+        if not t.readonly and name not in allow and not remote_ok:
             return (f"Error: {name} needs the user at the desk; it can't be done over "
                     f"{ctx.remote}. Tell them that.")
         if t.private and ctx.cfg.content_private:
@@ -133,8 +144,10 @@ async def run(ctx: Ctx, call: dict) -> str:
         return (f"Error: this request used the user's private files, so {name} can't run in "
                 "it: nothing from it may reach the internet or cloud models. The user can ask "
                 "for that separately.")
-    if t.confirm or (ctx.agent and not t.readonly) or (
-            ctx.tainted and not t.readonly and not t.local_only):
+    # a tool that decides per call (dynamic is True/False) also decides for tainted turns:
+    # stopping hardware must never wait for a yes
+    if t.confirm or dynamic or (ctx.agent and not t.readonly) or (
+            ctx.tainted and not t.readonly and not t.local_only and dynamic is None):
         try:  # describe may resolve the target (e.g. the window) and fail before we ask
             phrase = t.describe(args) if t.describe else f"run {name} {_short(args)}".strip()
         except Exception as e:
@@ -179,6 +192,8 @@ def undo(conn, action_id: int) -> str:
         db.delete_memory(conn, u["id"])
     elif u["kind"] == "restore_memory":
         db.restore_memory(conn, u["id"], u["text"])
+    elif u["kind"] in devices.KINDS:
+        devices.undo(u)
     elif u["kind"] in google_tools.KINDS:
         google_tools.undo(u)
     elif u["kind"] in day.KINDS:
@@ -228,4 +243,4 @@ def undo_last(ctx):
     return "There is nothing recent to undo.", None
 
 
-from jarvis.tools import apps, briefing, claude, day, delegate, edit, github, google_tools, outbound, files, memory, notes, web, windows  # noqa: E402,F401  (registers their tools)
+from jarvis.tools import apps, briefing, claude, day, delegate, devices, edit, github, google_tools, outbound, files, memory, notes, web, windows  # noqa: E402,F401  (registers their tools)

@@ -289,6 +289,27 @@ who's talking. So JARVIS only answers your own number: `my_number`, plus any
 For the outbound assistant (calling other people), write its Vapi prompt
 around `{{purpose}}`, which JARVIS fills in for each call.
 
+## Phase 5: hardware (serial and MQTT)
+
+- **Devices are config:** each `[[devices]]` entry in `config.toml` has a
+  name, a transport (`serial` or `mqtt`) and the exact commands JARVIS may
+  send. Adding a device is a config entry, never code, and JARVIS never sends
+  anything that isn't listed.
+- **Safety:**
+  - Commands with `confirm = true` ask first ("Start the motor rig, sir?").
+  - `stop` and `off` never ask. They even work from the phone, so you can
+    always stop something.
+  - Numbers are range-checked (`min`/`max`).
+  - `undo = "stop"` lets Undo send the safe opposite.
+- **Motor rig (from motor-fault-detection):** already set up. Plug in the
+  ESP32 and say "ping the motor rig", "start the motor rig", "set the motor
+  rig speed to 400" or "stop the motor rig".
+  - The port is found automatically.
+  - If the motor-fault dashboard is using the port, JARVIS says the port is
+    busy.
+- **MQTT:** needs a broker (for example, Mosquitto). See the commented
+  example in `config.toml`.
+
 ## Cost
 
 ₹0 a month. Groq and Gemini are on free tiers, and Whisper, Kokoro and Ollama
