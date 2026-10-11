@@ -133,11 +133,10 @@ async def test_undo_twice_refused(cfg, conn):
         undo(conn, aid)
 
 
-async def test_undo_last_picks_latest_undoable(cfg, conn, fake_tools):
+async def test_undo_last_undoes_the_latest(cfg, conn, fake_tools):
     ctx = make_ctx(cfg, conn)
     await run(ctx, call("remember", text="first"))
     await run(ctx, call("remember", text="second"))
-    await run(ctx, call("safe"))                     # nothing to undo here
     r = await run(ctx, call("undo_last"))
     assert "remember" in r and [m["text"] for m in db.memories(conn)] == ["first"]
 
@@ -164,3 +163,58 @@ async def test_private_agent_search_question_is_readable(cfg, conn):
     ctx = make_ctx(cfg, conn, answer=False, agent="private", allowed=["find_files"])
     await run(ctx, call("find_files", query="motor"))
     assert ctx.asked == ["The private agent wants to search your files for 'motor'. Allow, sir?"]
+
+
+async def test_cancelled_while_tool_runs_still_logs(cfg, conn, monkeypatch):
+    import asyncio
+    import time
+
+    def slow(ctx):
+        time.sleep(0.3)
+        return "opened", {"kind": "delete_memory", "id": 1}
+    monkeypatch.setitem(TOOLS, "slow", Tool("slow", slow, "x", {"type": "object"}))
+    task = asyncio.ensure_future(run(make_ctx(cfg, conn), call("slow")))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.5)
+    a = db.recent_actions(conn)
+    assert a and a[0]["tool"] == "slow" and a[0]["status"] == "done" and a[0]["undo"]
+
+
+async def test_undo_last_only_considers_latest_change(cfg, conn, fake_tools):
+    ctx = make_ctx(cfg, conn)
+    await run(ctx, call("remember", text="keep me"))
+    await run(ctx, call("risky"))                      # done, cannot be undone
+    r = await run(ctx, call("undo_last"))
+    assert "can't undo risky" in r and [m["text"] for m in db.memories(conn)] == ["keep me"]
+
+
+async def test_undo_last_skips_read_only_tools(cfg, conn, monkeypatch):
+    monkeypatch.setitem(TOOLS, "find_files", Tool("find_files", lambda ctx: ("x", None), "x",
+                                                  {"type": "object"}))
+    ctx = make_ctx(cfg, conn)
+    await run(ctx, call("remember", text="oops"))
+    await run(ctx, call("find_files"))
+    await run(ctx, call("undo_last"))
+    assert db.memories(conn) == []
+
+
+async def test_undo_last_ignores_old_actions(cfg, conn):
+    ctx = make_ctx(cfg, conn)
+    await run(ctx, call("remember", text="from yesterday"))
+    conn.execute("UPDATE actions SET ts='2020-01-01T00:00:00'")
+    r = await run(ctx, call("undo_last"))
+    assert "nothing" in r.lower() and len(db.memories(conn)) == 1
+
+
+async def test_describe_error_is_a_tool_error_not_a_crash(cfg, conn, monkeypatch):
+    def bad_describe(a):
+        return a["window"].lower()
+    monkeypatch.setitem(TOOLS, "risky2", Tool("risky2", lambda ctx, window: ("x", None), "x",
+                                              {"type": "object"}, confirm=True,
+                                              describe=bad_describe))
+    ctx = make_ctx(cfg, conn)
+    r = await run(ctx, call("risky2", window=5))
+    assert r.startswith("Error") and ctx.asked == []

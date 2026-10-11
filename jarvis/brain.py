@@ -144,6 +144,8 @@ def _history(conn) -> list[dict]:
         content = m["content"] + ("\n---\n" + m["screen"] if m["screen"] else "")
         if content.strip():
             out.append({"role": m["role"], "content": content})
+    while out and out[0]["role"] != "user":  # Gemini rejects a tool call not after a user turn
+        out.pop(0)
     return out
 
 

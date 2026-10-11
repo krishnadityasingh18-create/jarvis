@@ -62,6 +62,7 @@ class Hub:
                 await self.broadcast({"type": "state", "state": "speaking"})
                 await self.voice.speak(text)
                 if not fut.done():
+                    self.voice.confirm_id = cid   # a late spoken answer can't hit the next question
                     self.voice.event("confirm_listen")
             ok = await asyncio.wait_for(asyncio.shield(fut), wait)
         except TimeoutError:
@@ -127,8 +128,9 @@ class Hub:
         elif name == "cancel_turn":
             coro = self._stop_turn
         elif name == "confirm_heard":
-            ok = tools.parse_yes_no(payload["text"])
-            self.loop.call_soon_threadsafe(self._answer, ok)
+            if payload.get("id"):
+                ok = tools.parse_yes_no(payload["text"])
+                self.loop.call_soon_threadsafe(self._answer, ok, payload["id"])
             return
         else:  # state, banner
             coro = lambda: self.broadcast({"type": name, **payload})  # noqa: E731

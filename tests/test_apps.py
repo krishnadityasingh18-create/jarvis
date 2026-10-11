@@ -15,6 +15,8 @@ def opened(monkeypatch):
     log = []
     monkeypatch.setattr(os, "startfile", lambda p: log.append(str(p)), raising=False)
     monkeypatch.setattr(apps, "new_windows_after", lambda fn, wait=3.0: (fn(), [42])[1])
+    from jarvis.tools import windows
+    monkeypatch.setattr(windows, "_exe", lambda h: "chrome")
     return log
 
 
@@ -39,7 +41,8 @@ async def test_open_app_launches_and_records_undo(cfg, conn, opened, monkeypatch
     monkeypatch.setattr(apps, "APPS", dict(FAKE_APPS))
     r = await run(make_ctx(cfg, conn), call("open_app", name="chrome"))
     assert r == "Opened Google Chrome." and opened == ["shell:AppsFolder\\Chrome"]
-    assert db.recent_actions(conn)[0]["undo"] == {"kind": "close_windows", "hwnds": [42]}
+    assert db.recent_actions(conn)[0]["undo"] == {"kind": "close_windows", "hwnds": [42],
+                                                  "exes": ["chrome"]}
 
 
 async def test_open_app_unknown_suggests(cfg, conn, opened, monkeypatch):
@@ -89,3 +92,20 @@ async def test_run_script_unknown_lists_available(cfg, conn, tmp_path, monkeypat
     (tmp_path / "backup.ps1").write_text("")
     r = await run(make_ctx(cfg, conn), call("run_script", name="nuke"))
     assert r.startswith("Error") and "backup.ps1" in r
+
+
+async def test_open_app_fallback_refuses_paths_and_programs(cfg, conn, opened, monkeypatch):
+    monkeypatch.setattr(apps, "APPS", {})
+    for name in ("C:\\Users\\x\\Downloads\\x.exe", "\\\\server\\share",
+                 "https://evil.example", "payload.bat"):
+        r = await run(make_ctx(cfg, conn), call("open_app", name=name))
+        assert r.startswith("Error"), name
+    assert opened == []
+    await run(make_ctx(cfg, conn), call("open_app", name="notepad"))
+    assert opened == ["notepad"]
+
+
+async def test_open_path_refuses_dangerous_types_windows_knows(cfg, conn, opened, roots):
+    (roots / "notes" / "help.chm").write_text("x")
+    r = await run(make_ctx(cfg, conn), call("open_path", path=str(roots / "notes" / "help.chm")))
+    assert "run_script" in r and opened == []

@@ -127,10 +127,14 @@ def _bring(hwnd: int) -> None:
     user32.keybd_event(VK_MENU, 0, KEYUP, 0)
 
 
+def _post_close(hwnd: int) -> None:
+    user32.PostMessageW(W.HWND(hwnd), WM_CLOSE, 0, 0)
+
+
 def close_hwnds(hwnds: list[int]) -> None:
     for h in hwnds:
         if _is_window(h):
-            user32.PostMessageW(W.HWND(h), WM_CLOSE, 0, 0)
+            _post_close(h)
 
 
 def new_windows_after(fn, wait: float = 3.0) -> list[int]:
@@ -147,10 +151,13 @@ def new_windows_after(fn, wait: float = 3.0) -> list[int]:
 
 
 def undo(u: dict) -> None:
+    # Windows reuses handles, so only touch a window still owned by the same program.
     if u["kind"] == "close_windows":
-        close_hwnds(u["hwnds"])
+        for h, exe in zip(u["hwnds"], u.get("exes") or [None] * len(u["hwnds"])):
+            if _is_window(h) and (exe is None or _exe(h) == exe):
+                _post_close(h)
         return
-    if not _is_window(u["hwnd"]):
+    if not _is_window(u["hwnd"]) or (u.get("exe") and _exe(u["hwnd"]) != u["exe"]):
         raise ValueError("that window no longer exists")
     if u["kind"] == "placement":
         set_placement(u["hwnd"], u["data"])
@@ -170,12 +177,13 @@ def focus_window(ctx, window):
     h = _target(window)
     prev = user32.GetForegroundWindow()
     _bring(h)
-    return f"Focused {_title(h)}.", ({"kind": "focus", "hwnd": prev} if prev else None)
+    return f"Focused {_title(h)}.", ({"kind": "focus", "hwnd": prev, "exe": _exe(prev)}
+                                     if prev else None)
 
 
 def _placed(window: str, cmd: int, verb: str):
     h = _target(window)
-    undo_info = {"kind": "placement", "hwnd": h, "data": get_placement(h)}
+    undo_info = {"kind": "placement", "hwnd": h, "data": get_placement(h), "exe": _exe(h)}
     _show(h, cmd)
     return f"{verb} {_title(h)}.", undo_info
 
@@ -196,7 +204,7 @@ def snap_window(ctx, window, side):
     if side not in ("left", "right"):
         raise ValueError("side must be left or right")
     h = _target(window)
-    undo_info = {"kind": "placement", "hwnd": h, "data": get_placement(h)}
+    undo_info = {"kind": "placement", "hwnd": h, "data": get_placement(h), "exe": _exe(h)}
     _show(h, SW_RESTORE)
     x, y, cx, cy = _work_area(h)
     _move(h, x if side == "left" else x + cx // 2, y, cx // 2, cy)
@@ -204,15 +212,19 @@ def snap_window(ctx, window, side):
 
 
 def _describe_close(args: dict) -> str:
-    r = find_window(args.get("window", ""), list_top())
-    return f"close {_title(r) if isinstance(r, int) else args.get('window', '')}"
+    """Resolve the window before asking (fails on no/several matches), and pin it so the
+    window closed is the one the user said yes to."""
+    h = _target(str(args.get("window", "")))
+    args["hwnd"] = h
+    return f"close {_title(h)}"
 
 
 @tool("Close a window (the app may still ask to save). Asks the user first.",
       confirm=True, describe=_describe_close,
       window="string: app name or part of the window title")
-def close_window(ctx, window):
-    h = _target(window)
-    title = _title(h)
-    close_hwnds([h])
+def close_window(ctx, window, hwnd=None):
+    if hwnd is None or not _is_window(hwnd):
+        raise ValueError("that window is no longer open")
+    title = _title(hwnd)
+    close_hwnds([hwnd])
     return f"Asked {title} to close.", None

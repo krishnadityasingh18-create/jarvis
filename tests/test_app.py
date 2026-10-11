@@ -210,14 +210,32 @@ def test_confirm_resolved_by_button(cfg, conn):
     assert log == [True] and {"type": "confirm_done", "id": c["id"], "ok": True} in seen
 
 
+class FakeVoice:
+    available = True
+
+    def __init__(self):
+        self.events, self.confirm_id = [], None
+
+    async def speak(self, text):
+        pass
+
+    def prepare(self, text):
+        pass
+
+    def event(self, name):
+        self.events.append(name)
+
+
 def test_confirm_resolved_by_voice_text(cfg, conn):
     log = []
-    app = create_app(cfg, conn, turn_runner=confirm_runner(log))
+    voice = FakeVoice()
+    app = create_app(cfg, conn, voice=voice, turn_runner=confirm_runner(log))
     with TestClient(app) as client:
         ctx, ws = connect(client)
         ws.send_json({"type": "text_input", "text": "close notepad"})
-        recv_until(ws, lambda m: m["type"] == "confirm")
-        app.state.hub.from_thread("confirm_heard", {"text": "Yes, go ahead."})
+        c = recv_until(ws, lambda m: m["type"] == "confirm")[-1]
+        assert voice.confirm_id == c["id"] and "confirm_listen" in voice.events
+        app.state.hub.from_thread("confirm_heard", {"text": "Yes, go ahead.", "id": c["id"]})
         recv_until(ws, lambda m: m["type"] == "turn_end")
         ctx.__exit__(None, None, None)
     assert log == [True]
@@ -271,3 +289,27 @@ def test_actions_sent_on_connect(cfg, conn):
             ws.receive_json(), ws.receive_json()
             a = ws.receive_json()
     assert a["type"] == "actions" and a["actions"][0]["tool"] == "remember"
+
+
+def test_late_voice_answer_does_not_approve_next_question(cfg, conn, monkeypatch):
+    from jarvis import app as app_mod
+    monkeypatch.setattr(app_mod, "VOICE_WAIT_S", 0.5)
+    log = []
+
+    async def two_questions(cfg, conn, text, route, emit, speak, **kw):
+        log.append(await kw["confirm"]("Close Notepad, sir?"))
+        log.append(await kw["confirm"]("Close Chrome, sir?"))
+        await emit({"type": "turn_end"})
+    voice = FakeVoice()
+    app = create_app(cfg, conn, voice=voice, turn_runner=two_questions)
+    with TestClient(app) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "text_input", "text": "close both"})
+        c1 = recv_until(ws, lambda m: m["type"] == "confirm")[-1]
+        ws.send_json({"type": "confirm_reply", "id": c1["id"], "ok": True})
+        recv_until(ws, lambda m: m["type"] == "confirm")
+        # the "yes" spoken to the first question arrives late, after the button answered it
+        app.state.hub.from_thread("confirm_heard", {"text": "yes", "id": c1["id"]})
+        recv_until(ws, lambda m: m["type"] == "turn_end")
+        ctx.__exit__(None, None, None)
+    assert log == [True, False]

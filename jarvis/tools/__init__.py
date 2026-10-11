@@ -5,6 +5,7 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 from jarvis import db
 
@@ -63,10 +64,25 @@ def _short(args: dict) -> str:
     return " ".join(str(v) for v in args.values())[:60]
 
 
-async def _log(ctx: Ctx, name: str, args: dict, result: str, status: str, undo) -> None:
+def _record(ctx: Ctx, name: str, args: dict, result: str, status: str, undo) -> dict:
     aid = db.log_action(ctx.conn, name, args, result, status, undo, ctx.agent)
     ctx.actions.append({"name": name, "arguments": json.dumps(args), "result": result[:500]})
-    await ctx.emit({"type": "action", **db.get_action(ctx.conn, aid)})
+    return {"type": "action", **db.get_action(ctx.conn, aid)}
+
+
+async def _log(ctx: Ctx, name: str, args: dict, result: str, status: str, undo) -> None:
+    await ctx.emit(_record(ctx, name, args, result, status, undo))
+
+
+def _outcome(fut: asyncio.Future) -> tuple[str, str, dict | None]:
+    """(result, status, undo) from a finished tool call."""
+    if fut.cancelled():
+        return "Error: cancelled", "failed", None
+    if (e := fut.exception()) is not None:
+        return f"Error: {e}", "failed", None
+    out = fut.result()
+    result, undo_info = out if isinstance(out, tuple) else (out, None)
+    return str(result)[:MAX_RESULT], "done", undo_info
 
 
 async def run(ctx: Ctx, call: dict) -> str:
@@ -82,22 +98,31 @@ async def run(ctx: Ctx, call: dict) -> str:
     except (ValueError, AssertionError):
         return "Error: the tool arguments were not valid JSON."
     if t.confirm or ctx.agent:
-        phrase = t.describe(args) if t.describe else f"run {name} {_short(args)}".strip()
+        try:  # describe may resolve the target (e.g. the window) and fail before we ask
+            phrase = t.describe(args) if t.describe else f"run {name} {_short(args)}".strip()
+        except Exception as e:
+            result = f"Error: {e}"
+            await _log(ctx, name, args, result, "failed", None)
+            return result
         q = (f"The {ctx.agent} agent wants to {phrase}. Allow, sir?" if ctx.agent
              else f"{phrase[0].upper()}{phrase[1:]}, sir?")
         if not await ctx.confirm(q):
             await _log(ctx, name, args, DECLINED, "declined", None)
             return DECLINED
+    if inspect.iscoroutinefunction(t.fn):
+        task = asyncio.ensure_future(t.fn(ctx, **args))
+    else:
+        task = asyncio.ensure_future(asyncio.to_thread(t.fn, ctx, **args))
     try:
+        await asyncio.wait([task])
+    except asyncio.CancelledError:
+        # The turn was cancelled, but a thread can't be stopped: the action still happens,
+        # so log it (and its undo) when it finishes. A coroutine tool (delegate) is cancelled.
         if inspect.iscoroutinefunction(t.fn):
-            out = await t.fn(ctx, **args)
-        else:
-            out = await asyncio.to_thread(t.fn, ctx, **args)
-        result, undo_info = out if isinstance(out, tuple) else (out, None)
-        status = "done"
-    except Exception as e:  # CancelledError is not an Exception: it propagates
-        result, undo_info, status = f"Error: {e}", None, "failed"
-    result = str(result)[:MAX_RESULT]
+            task.cancel()
+        task.add_done_callback(lambda f: _record(ctx, name, args, *_outcome(f)))
+        raise
+    result, status, undo_info = _outcome(task)
     await _log(ctx, name, args, result, status, undo_info)
     return result
 
@@ -130,12 +155,24 @@ def parse_yes_no(text: str) -> bool:
     return bool(words & _YES) or "do it" in t or "go ahead" in t
 
 
-@tool("Undo the most recent action that can be undone (open, window move, memory change).")
+READ_ONLY = {"find_files", "list_windows", "delegate", "undo_last"}
+UNDO_WINDOW = timedelta(minutes=30)
+
+
+@tool("Undo the user's most recent action (open, window move, memory change), if possible.")
 def undo_last(ctx):
+    """Only the latest change counts: skipping past an action that can't be undone would
+    undo something older the user didn't mean."""
+    since = (datetime.now() - UNDO_WINDOW).isoformat(timespec="seconds")
     for a in db.recent_actions(ctx.conn, 50):
+        if a["ts"] < since:
+            break
+        if a["tool"] in READ_ONLY or a["status"] in ("declined", "failed"):
+            continue
         if a["status"] == "done" and a["undo"]:
             return undo(ctx.conn, a["id"]), None
-    return "There is nothing to undo.", None
+        return f"I can't undo {a['tool']} ({a['status']}).", None
+    return "There is nothing recent to undo.", None
 
 
 from jarvis.tools import apps, delegate, files, memory, windows  # noqa: E402,F401  (registers their tools)

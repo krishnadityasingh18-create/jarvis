@@ -125,6 +125,7 @@ class VoiceLoop:
         # becomes stale; work captures it at start and is dropped if it changed.
         self._gen = 0
         self._pending: list[tuple[str, asyncio.Future]] = []
+        self.confirm_id: str | None = None   # the question being answered; set by the hub
 
     # -------- models
     def load(self) -> None:
@@ -251,17 +252,17 @@ class VoiceLoop:
 
     def _do_transcribe_confirm(self) -> None:
         audio = np.concatenate(self._buf) if self._buf else np.zeros(0, np.float32)
-        gen = self._gen
+        gen, cid = self._gen, self.confirm_id
 
         def run():
             text = self.transcribe(audio)
             with self.lock:
                 if gen == self._gen:  # not answered by button or cancelled meanwhile
-                    self.on_event("confirm_heard", {"text": text})
+                    self.on_event("confirm_heard", {"text": text, "id": cid})
         threading.Thread(target=run, daemon=True).start()
 
     def _do_confirm_silent(self) -> None:
-        self.on_event("confirm_heard", {"text": ""})
+        self.on_event("confirm_heard", {"text": "", "id": self.confirm_id})
 
     def _transcribe(self, audio: np.ndarray, gen: int) -> None:
         text = self.transcribe(audio)

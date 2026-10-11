@@ -162,7 +162,7 @@ const on = {
     $("confirm").querySelector(".q").textContent = m.text;
     const tick = () => { $("confirm").querySelector(".left").textContent = left > 0 ? `${left}s` : ""; left--; };
     clearInterval(confirmTimer); tick(); confirmTimer = setInterval(tick, 1000);
-    $("confirm").classList.add("open"); $("confirm").querySelector(".yes").focus();
+    $("confirm").classList.add("open"); $("confirm").querySelector(".no").focus();  // safe default
   },
   confirm_done(m) { if (m.id === confirmId) closeConfirm(); },
 };

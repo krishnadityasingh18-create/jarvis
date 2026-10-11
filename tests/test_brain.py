@@ -361,3 +361,13 @@ def test_escaped_separator_from_model():
     out = run(sp, "Done, sir.---\\n```bash\\n", "hello\\n```")
     assert out[0] == ("speak", "Done, sir.")
     assert "".join(v for k, v in out[1:] if k == "screen") == "```bash\nhello\n```"
+
+
+def test_history_never_starts_with_assistant(conn):
+    import json
+    db.add_message(conn, "assistant", "Done.", actions=json.dumps(
+        [{"name": "remember", "arguments": "{}", "result": "ok"}]))
+    db.add_message(conn, "user", "hi")
+    db.add_message(conn, "assistant", "Hello.")
+    h = brain._history(conn)
+    assert h[0] == {"role": "user", "content": "hi"}

@@ -41,6 +41,7 @@ def fake_win32(monkeypatch):
     monkeypatch.setattr(w, "_work_area", lambda h: (0, 0, 1920, 1040))
     monkeypatch.setattr(w, "_move", lambda h, x, y, cx, cy: log.append(("move", h, x, y, cx, cy)))
     monkeypatch.setattr(w, "_is_window", lambda h: True)
+    monkeypatch.setattr(w, "_exe", lambda h: "notepad")
     return log, placement
 
 
@@ -49,7 +50,7 @@ async def test_snap_records_placement_undo(cfg, conn, fake_win32):
     r = await run(make_ctx(cfg, conn), call("snap_window", window="notepad", side="right"))
     assert "Snapped" in r and ("move", 3, 960, 0, 960, 1040) in log
     a = db.recent_actions(conn)[0]
-    assert a["undo"] == {"kind": "placement", "hwnd": 3, "data": placement}
+    assert a["undo"] == {"kind": "placement", "hwnd": 3, "data": placement, "exe": "notepad"}
     undo(conn, a["id"])
     assert log[-1] == ("set", 3, placement)
 
@@ -67,3 +68,33 @@ async def test_close_window_requires_confirm(cfg, conn, fake_win32, monkeypatch)
     await run(ctx, call("close_window", window="notepad"))
     assert TOOLS["close_window"].confirm and closed == []
     assert ctx.asked == ["Close notes.txt - Notepad, sir?"]
+
+
+async def test_close_ambiguous_fails_before_asking(cfg, conn, fake_win32):
+    ctx = make_ctx(cfg, conn)
+    r = await run(ctx, call("close_window", window="chrome"))
+    assert r.startswith("Error") and "several windows" in r and ctx.asked == []
+
+
+async def test_close_acts_on_the_window_it_asked_about(cfg, conn, fake_win32, monkeypatch):
+    closed = []
+    monkeypatch.setattr(w, "close_hwnds", lambda hs: closed.extend(hs))
+    ctx = make_ctx(cfg, conn)
+
+    async def confirm(q):
+        ctx.asked.append(q)   # while the user decides, the window list changes
+        monkeypatch.setattr(w, "list_top", lambda: [{"hwnd": 9, "title": "notes.txt - copy",
+                                                     "exe": "notepad"}] + WINS)
+        return True
+    ctx.confirm = confirm
+    await run(ctx, call("close_window", window="notes.txt"))
+    assert closed == [3]
+
+
+def test_undo_close_windows_skips_reused_handles(monkeypatch):
+    closed = []
+    monkeypatch.setattr(w, "_is_window", lambda h: True)
+    monkeypatch.setattr(w, "_exe", lambda h: {1: "notepad", 2: "chrome"}[h])
+    monkeypatch.setattr(w, "_post_close", lambda h: closed.append(h))
+    w.undo({"kind": "close_windows", "hwnds": [1, 2], "exes": ["notepad", "notepad"]})
+    assert closed == [1]

@@ -1,7 +1,9 @@
 """Open apps and files, run approved scripts."""
+import ctypes
 import difflib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +20,12 @@ RUNNERS = {".py": lambda f: [sys.executable, str(f)],
                               str(f)],
            ".bat": lambda f: ["cmd", "/c", str(f)]}
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def _runs_code(name: str) -> bool:
+    """Our list plus Windows' own list of types that can run code (.chm, .pif, .scf...)."""
+    ext = Path(name).suffix.lower()
+    return bool(ext) and (ext in EXECUTABLE or bool(ctypes.windll.shlwapi.AssocIsDangerous(ext)))
 
 
 def load_apps() -> dict[str, str]:
@@ -43,13 +51,17 @@ def match_app(name: str, apps: dict[str, str]) -> str | None:
 
 
 def _opened(target, label: str):
+    from jarvis.tools.windows import _exe
     hwnds = new_windows_after(lambda: os.startfile(target))
-    return f"Opened {label}.", ({"kind": "close_windows", "hwnds": hwnds} if hwnds else None)
+    return f"Opened {label}.", ({"kind": "close_windows", "hwnds": hwnds,
+                                 "exes": [_exe(h) for h in hwnds]} if hwnds else None)
 
 
 @tool("Open an installed app by name.", name="string: the app's name, e.g. Chrome")
 def open_app(ctx, name):
-    if not APPS:  # app list unavailable: let Windows try the name itself
+    if not APPS:  # app list unavailable: let Windows try the name, but only a plain name
+        if re.search(r"[\\/:]", name) or _runs_code(name):
+            raise ValueError("I can only open apps by name, not paths, links or programs")
         return _opened(name, name)
     app_id = match_app(name, APPS)
     if app_id is None:
@@ -79,7 +91,7 @@ def open_path(ctx, path):
     p = p.resolve()
     if not inside_roots(p, ctx.cfg.file_roots, ctx.cfg.file_exclude):
         raise ValueError("that path is outside the folders I'm allowed to open")
-    if p.suffix.lower() in EXECUTABLE:
+    if _runs_code(p.name):
         raise ValueError("that is a program or script; only approved scripts can run, "
                          "through run_script")
     if not p.exists():
