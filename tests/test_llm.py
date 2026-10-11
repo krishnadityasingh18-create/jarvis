@@ -175,3 +175,54 @@ def test_think_tags_stripped(cfg, conn):
     out = list(stream_reply(cfg, conn, MSGS, "fast",
                             factory({"fast": ok("<think>", "</think>", "Hello sir.")})))
     assert "".join(v for k, v in out if k == "text") == "Hello sir."
+
+
+SIG = {"google": {"thought_signature": "abc"}}
+
+
+def test_tool_call_keeps_gemini_signature(cfg, conn):
+    call = NS(index=0, id="c1", function=NS(name="remember", arguments="{}"),
+              model_extra={"extra_content": SIG})
+    chunks = [NS(choices=[NS(delta=NS(content=None, tool_calls=[call]))], usage=None)]
+    out = list(stream_reply(cfg, conn, MSGS, "fast", factory({"fast": lambda **kw: iter(chunks)}),
+                            tools=[{}]))
+    assert out[-1][1][0]["extra_content"] == SIG
+
+
+def history_with_calls():
+    return MSGS + [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "a", "type": "function", "function": {"name": "x", "arguments": "{}"}},
+            {"id": "b", "type": "function", "function": {"name": "y", "arguments": "{}"},
+             "extra_content": SIG}]},
+        {"role": "tool", "tool_call_id": "a", "content": "ok"},
+        {"role": "tool", "tool_call_id": "b", "content": "ok"}]
+
+
+def sent_calls(cfg, conn, route):
+    sent = []
+
+    def create(**kw):
+        sent.append(kw["messages"])
+        return iter([chunk("hi")])
+    list(stream_reply(cfg, conn, history_with_calls(), route, factory({route: create}),
+                      fallback=False))
+    return sent[0][1]["tool_calls"]
+
+
+def test_gemini_gets_signatures_for_every_replayed_call(cfg, conn):
+    calls = sent_calls(cfg, conn, "reasoning")              # the Gemini route
+    assert calls[0]["extra_content"]["google"]["thought_signature"] == \
+        "skip_thought_signature_validator"
+    assert calls[1]["extra_content"] == SIG                  # a real one is kept
+
+
+def test_other_routes_never_see_signatures(cfg, conn):
+    assert all("extra_content" not in c for c in sent_calls(cfg, conn, "fast"))
+
+
+def test_caller_messages_not_mutated(cfg, conn):
+    msgs = history_with_calls()
+    list(stream_reply(cfg, conn, msgs, "reasoning",
+                      factory({"reasoning": lambda **kw: iter([chunk("hi")])}), fallback=False))
+    assert "extra_content" not in msgs[1]["tool_calls"][0]

@@ -20,6 +20,28 @@ def make_client(route: Route) -> openai.OpenAI:
     return openai.OpenAI(base_url=route.base_url, api_key=key, max_retries=0)
 
 
+# Gemini 3 rejects a replayed tool call without its "thought signature". Calls from this
+# turn carry the real one; calls rebuilt from history get Google's documented placeholder.
+PLACEHOLDER_SIGNATURE = {"google": {"thought_signature": "skip_thought_signature_validator"}}
+
+
+def _for_route(messages: list[dict], r: Route) -> list[dict]:
+    """Signatures for Gemini on every tool call; no signatures for anyone else."""
+    if not any(m.get("tool_calls") for m in messages):
+        return messages
+    gemini = "generativelanguage.googleapis.com" in r.base_url
+    out = []
+    for m in messages:
+        if m.get("tool_calls"):
+            m = {**m, "tool_calls": [
+                {**{k: v for k, v in c.items() if k != "extra_content"},
+                 **({"extra_content": c.get("extra_content") or PLACEHOLDER_SIGNATURE}
+                    if gemini else {})}
+                for c in m["tool_calls"]]}
+        out.append(m)
+    return out
+
+
 def route_order(cfg: Config, first: str) -> list[str]:
     return [first] + [r for r in cfg.fallback if r != first]
 
@@ -42,7 +64,7 @@ def stream_reply(cfg: Config, conn, messages: list[dict], route: str,
         started = False
         try:
             stream = client_factory(r).chat.completions.create(
-                model=r.model, messages=messages, stream=True,
+                model=r.model, messages=_for_route(messages, r), stream=True,
                 stream_options={"include_usage": True}, **tool_args,
                 **({"extra_body": r.extra_body} if r.extra_body else {}))
             it = iter(stream)
@@ -64,6 +86,8 @@ def stream_reply(cfg: Config, conn, messages: list[dict], route: str,
                     c["id"] = c["id"] or tc.id or ""
                     c["name"] += tc.function.name or ""
                     c["arguments"] += tc.function.arguments or ""
+                    if extra := (getattr(tc, "model_extra", None) or {}).get("extra_content"):
+                        c["extra_content"] = extra   # Gemini's thought signature
                 if delta:
                     text += delta
                     yield ("text", delta)

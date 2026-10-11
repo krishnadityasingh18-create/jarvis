@@ -26,7 +26,7 @@ extra_body = { reasoning_effort = "low" }
 
 [routes.reasoning]
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-model = "gemini-2.5-flash"
+model = "gemini-3.5-flash"   # 2.5 closed to new keys (2026-10); 3.5 calls tools in ~3 s
 key = "gemini"
 
 [routes.local]

@@ -403,3 +403,20 @@ async def test_agent_stops_when_the_user_declines(cfg, conn, monkeypatch):
     out = await brain.agent_loop(ctx, [{"role": "user", "content": "x"}], "reasoning",
                                  ["remember"])
     assert len(seen) == 1 and "declined" in out
+
+
+async def test_signature_carried_into_next_step(cfg, conn, monkeypatch):
+    import json as _json
+    seen = []
+    sig = {"google": {"thought_signature": "abc"}}
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "reasoning"), ("tool_calls", [{"id": "c1", "name": "remember",
+                                                  "arguments": _json.dumps({"text": "x"}),
+                                                  "extra_content": sig}])],
+        [("route", "reasoning"), ("text", "Done.")], seen=seen))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "remember x", "reasoning", noop_emit, speak)
+    call = seen[1]["messages"][-2]["tool_calls"][0]
+    assert call["extra_content"] == sig

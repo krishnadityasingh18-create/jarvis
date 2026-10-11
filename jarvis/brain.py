@@ -188,7 +188,8 @@ async def agent_loop(ctx: tools.Ctx, messages: list[dict], route: str, tool_name
             return "".join(texts).strip()
         messages.append({"role": "assistant", "content": step_text, "tool_calls": [
             {"id": c["id"], "type": "function",
-             "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
+             "function": {"name": c["name"], "arguments": c["arguments"] or "{}"},
+             **({"extra_content": c["extra_content"]} if c.get("extra_content") else {})}
             for c in calls]})
         await ev("tools")
         declined = []
