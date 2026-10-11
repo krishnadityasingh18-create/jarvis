@@ -139,3 +139,15 @@ def test_index_skips_junk(tmp_path, cfg, conn):
     names = {Path(r[0]).name for r in conn.execute("SELECT path FROM docs")}
     assert "app.js" in names
     assert not names & {"jquery.min.js", "~$resume.docx", "data.json", "table.csv"}
+
+
+def test_index_skips_html_and_huge_code(tmp_path, cfg, conn):
+    home = tmp_path / "home"
+    make_docs(home)
+    n = home / "notes"
+    (n / "class_lcd.html").write_text("<p>doxygen</p>\n" * 10)
+    (n / "build.js").write_text("const x = 1;\n" * 20000)           # ~260 KB of code
+    (n / "big_notes.md").write_text("revision line\n" * 20000)      # big notes are fine
+    index(tmp_path, cfg)
+    names = {Path(r[0]).name for r in conn.execute("SELECT path FROM docs")}
+    assert "big_notes.md" in names and not names & {"class_lcd.html", "build.js"}

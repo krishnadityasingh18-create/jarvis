@@ -9,8 +9,10 @@ import numpy as np
 from jarvis import db
 
 # Notes and code. No .json/.csv/.css: in practice they're tool caches and datasets, not notes.
-TEXT_EXT = {".md", ".txt", ".rst", ".tex", ".py", ".c", ".cpp", ".h", ".hpp", ".ino", ".m",
-            ".java", ".js", ".ts", ".html", ".sql", ".yaml", ".yml", ".toml", ".ini"}
+# No .html either: on this laptop it's generated library docs (Doxygen), not notes.
+CODE_EXT = {".py", ".c", ".cpp", ".h", ".hpp", ".ino", ".m", ".java", ".js", ".ts", ".sql"}
+TEXT_EXT = {".md", ".txt", ".rst", ".tex", ".yaml", ".yml", ".toml", ".ini"} | CODE_EXT
+MAX_CODE = 200 * 2**10   # bigger code files are bundles or generated, not something you wrote
 DOC_EXT = TEXT_EXT | {".pdf", ".docx", ".pptx", ".ipynb"}
 MAX_PDF = 50 * 2**20
 MAX_OTHER = 2 * 2**20
@@ -101,7 +103,8 @@ def _walk(roots, exclude, skip):
                     st = os.stat(p)
                 except OSError:
                     continue
-                if st.st_size > (MAX_PDF if ext == ".pdf" else MAX_OTHER):
+                cap = MAX_PDF if ext == ".pdf" else MAX_CODE if ext in CODE_EXT else MAX_OTHER
+                if st.st_size > cap:
                     continue
                 if ext in TEXT_EXT and _minified(p):
                     continue
