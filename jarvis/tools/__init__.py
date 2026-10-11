@@ -168,6 +168,8 @@ def undo(conn, action_id: int) -> str:
         db.delete_memory(conn, u["id"])
     elif u["kind"] == "restore_memory":
         db.restore_memory(conn, u["id"], u["text"])
+    elif u["kind"] in google_tools.KINDS:
+        google_tools.undo(u)
     elif u["kind"] in day.KINDS:
         if u.get("table", "timetable") not in day.TABLES:
             raise ValueError("bad undo record")
@@ -215,4 +217,4 @@ def undo_last(ctx):
     return "There is nothing recent to undo.", None
 
 
-from jarvis.tools import apps, briefing, claude, day, delegate, edit, github, files, memory, notes, web, windows  # noqa: E402,F401  (registers their tools)
+from jarvis.tools import apps, briefing, claude, day, delegate, edit, github, google_tools, files, memory, notes, web, windows  # noqa: E402,F401  (registers their tools)

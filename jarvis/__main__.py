@@ -29,6 +29,22 @@ def keys_cli(args: list[str]) -> None:
         print("usage: python -m jarvis keys set <name> | keys list   (names: " + ", ".join(names) + ")")
 
 
+def accounts_cli(args: list[str]) -> None:
+    import subprocess as sp
+
+    from jarvis import google
+    cfg = load_config()
+    if args == ["connect", "google"]:
+        google.connect(cfg.db_path.parent / "google_client.json")
+        print("Google connected (token saved to Windows Credential Manager).")
+    elif args == ["list"]:
+        print(f"google: {'connected' if google.connected() else 'not connected'}")
+        gh = sp.run(["gh", "auth", "status"], capture_output=True, text=True)
+        print(f"github: {'connected (gh)' if gh.returncode == 0 else 'not connected (gh auth login)'}")
+    else:
+        print("usage: python -m jarvis accounts connect google | accounts list")
+
+
 def open_window() -> None:
     for _ in range(60):
         try:
@@ -59,6 +75,8 @@ def hook_hotkey(voice, key: str) -> None:
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["accounts"]:
+        return accounts_cli(sys.argv[2:])
     if sys.argv[1:2] == ["keys"]:
         return keys_cli(sys.argv[2:])
     cfg = load_config()

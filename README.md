@@ -194,6 +194,40 @@ motor-fault-detection".
 7. "Ask the researcher to compare buck and boost converter efficiency." You get a
    researched answer with links.
 
+## Phase 3: daily briefing, plan, reminders, accounts
+
+- **Timetable, tasks, reminders:** tell JARVIS. For example:
+  - "Add Physics on Monday 9 to 9:50 in TP-201."
+  - "Lab report due Thursday."
+  - "Remind me at 6 to call mom."
+
+  Reminders are spoken and shown on time. If JARVIS was off at that moment, they
+  play once as "late" when it next starts. Everything is undoable.
+- **Briefing:** say "brief me", or let the morning briefing run on its own. It
+  runs once a day after `[briefing] time` (07:30) while JARVIS is running.
+  - It covers the weather at SRM, today's classes, deadlines, today's reminders,
+    your calendar, important unread email, and GitHub.
+  - It ends with a proposed plan for the day. Change it by voice ("move the gym
+    to 7"), and JARVIS keeps it as today's plan.
+- **GitHub:** works through your existing `gh` login. Ask "what's on GitHub?"
+- **Google (Gmail, Calendar, Drive):** read email, save drafts (never sent; you
+  send them), see and add calendar events, search Drive. Saving drafts and
+  adding events ask first and can be undone.
+
+### Connecting Google (one time, about 5 minutes)
+
+1. At https://console.cloud.google.com, create a project. Then enable the
+   **Gmail API**, **Google Calendar API** and **Google Drive API**.
+2. Under **OAuth consent screen**, choose External, and add yourself as a
+   **test user**.
+3. Under **Credentials**, choose Create credentials → OAuth client ID →
+   **Desktop app**. Download the JSON file and save it as
+   `jarvis\data\google_client.json`.
+4. Run `.venv\Scripts\python -m jarvis accounts connect google` and allow
+   access in the browser.
+5. Run `.venv\Scripts\python -m jarvis accounts list` to check that it says
+   "google: connected".
+
 ## Cost
 
 ₹0 a month. Groq and Gemini are on free tiers, and Whisper, Kokoro and Ollama
