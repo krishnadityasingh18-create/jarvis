@@ -266,7 +266,12 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
     db.add_message(conn, "user", user_text)
     if (prompt := direct_claude_prompt(user_text)) is not None:
         return await _direct_claude(cfg, conn, prompt, emit, speak)
-    system = cfg.persona + "\n\n" + _places() + (f"\n\n{mb}" if (mb := memory_block(conn)) else "")
+    from jarvis.tools import day
+    t = day.now()
+    system = (cfg.persona + "\n\n" + _places()
+              + f"\n\nNow: {t:%A %d %B %Y, %H:%M} (local time)."
+              + (f"\n\nToday's plan: {plan}" if (plan := day.today_plan(conn)) else "")
+              + (f"\n\n{mb}" if (mb := memory_block(conn)) else ""))
     messages = [{"role": "system", "content": system}] + _history(conn,
                                                                    redact=True)
     ctx = tools.Ctx(cfg, conn, confirm or _refuse, emit)
