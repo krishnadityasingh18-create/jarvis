@@ -1,14 +1,14 @@
-// The core: a dot-lattice shell whose surface folds and flows (the user's reference
-// orb), and the audio meter. anime.js owns time: one createTimer is the frame loop,
-// and every value the renderer reads (spin, flow, pulse, colour, ripples, bars) is
+// The core: a perfectly round dot-lattice shell (the user's reference orb) that only
+// ripples, gently, while speaking; and the audio meter. anime.js owns time: one createTimer is the frame loop,
+// and every value the renderer reads (spin, pulse, colour, ripples, bars) is
 // tweened by animate().
 import { animate, createTimer, utils } from "/ui/anime.esm.min.js";
 
 export const COLORS = { idle: "#CFE3FF", listening: "#D8E06A", thinking: "#FF6B5E", speaking: "#E07BFF",
                         confirming: "#7CF5C4", off: "#7C93A6" };
-// per state: spin (rad/s), pulse depth, audio level, surface flow speed
-const MOTION = { idle: [.10, 0, .06, .35], listening: [.22, .5, .5, .6], thinking: [.95, 0, .2, .9],
-                 speaking: [.12, 0, .85, .6], confirming: [.2, .5, .5, .5], off: [.03, 0, 0, .1] };
+// per state: spin (rad/s), pulse depth, audio level
+const MOTION = { idle: [.10, 0, .06], listening: [.22, .5, .5], thinking: [.95, 0, .2],
+                 speaking: [.12, 0, .85], confirming: [.2, .5, .5], off: [.03, 0, 0] };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 
@@ -18,17 +18,12 @@ for (let i = 0; i < N; i++) {
   const y = 1 - 2 * (i + .5) / N, r = Math.sqrt(1 - y * y), a = i * GA;
   P[i * 3] = Math.cos(a) * r; P[i * 3 + 1] = y; P[i * 3 + 2] = Math.sin(a) * r;
 }
-// the folds: a few waves crossing the surface, smooth in space and time (t = m.flowT)
-// big slow swells, then finer lumps that make the bumpy outline and the wrinkle ridges
-const fold = (x, y, z, t) => .07 * Math.sin(3.1 * x + 1.7 * y + t) * Math.sin(2.6 * z - 1.9 * x - .8 * t)
-  + .04 * Math.sin(5.3 * y + 2.2 * z - 1.3 * t) + .035 * Math.sin(7.1 * x - 4.4 * z + 1.7 * t) * Math.sin(6.3 * y + .9 * t)
-  + .022 * Math.sin(10.7 * x + 9.1 * y - 2.1 * t) * Math.sin(11.3 * z - 8.2 * y + 1.4 * t);
 
 // everything the renderer reads; only anime.js (and the clock) writes it
-const m = { spin: .1, amp: 0, lvl: 0, flow: .35, flowT: 0, beat: 0, scale: .6, rot: 0, r: 207, g: 227, b: 255,
+const m = { spin: .1, amp: 0, lvl: 0, beat: 0, scale: .6, rot: 0, r: 207, g: 227, b: 255,
             wave: 0, rip: 0 };   // speaking: two wavefronts travel out from the middle of the disc
 const bars = Array.from({ length: 40 }, () => ({ v: 0 }));
-const RIP_W = .16;   // wavefront thickness, as a fraction of the radius
+const RIP_W = .08;   // wavefront thickness, as a fraction of the radius
 // one wave at `wave`, the other half a cycle behind; each swells in from the centre and has
 // left the sphere (front > 1.2) before the loop wraps, so nothing ever pops in or out
 const front = (d, f) => Math.min(1, f / .35) * Math.exp(-(((d - f) / RIP_W) ** 2));
@@ -43,12 +38,12 @@ function fit(c) {
 }
 
 // The dots are splatted into a light buffer (adding up where they overlap), then tone-mapped:
-// dim → the state colour, bright → white. Overlap is what lights the rim and fold ridges.
+// dim → the state colour, bright → white. Overlap is what lights the rim.
 // ponytail: CPU pixel buffer, ~3 ms a frame at 24k dots; WebGL points if it ever needs more
 let acc = null, img = null, off = null;
 function drawSphere(cx) {
   const [w, h, dpr] = fit(cx.canvas), R = Math.min(w, h) * .40 * m.scale * (1 + m.amp * .04 * m.beat);
-  const ox = w / 2, oy = h / 2, t = m.flowT, col = [m.r, m.g, m.b];
+  const ox = w / 2, oy = h / 2, col = [m.r, m.g, m.b];
   cx.clearRect(0, 0, w, h);
   // the soft tinted glow inside the shell
   const g = cx.createRadialGradient(ox, oy, 0, ox, oy, R * 1.05);
@@ -70,10 +65,10 @@ function drawSphere(cx) {
   for (let i = 0; i < N; i++) {
     const x0 = P[i * 3], y0 = P[i * 3 + 1], z0 = P[i * 3 + 2];
     const x = x0 * cr + z0 * sr, z1 = -x0 * sr + z0 * cr, y = y0 * ct - z1 * st, z = y0 * st + z1 * ct;
-    const f = fold(x0, y0, z0, t), b = ripple(Math.sqrt(x * x + y * y)), k = (1 + f) * (1 + .12 * b) * R;
-    // front half brighter, fold crests lit as ridges
-    const a = (z > 0 ? .3 : .14) + Math.max(0, f) * 9 + b * .9;
-    const sz = Math.max(1, Math.round(dot * (1 + b * .8))), px = (cx0 + x * k) | 0, py = (cy0 + y * k) | 0;
+    // speaking: a small ripple lifts the surface 2% and brightens it a little
+    const b = ripple(Math.sqrt(x * x + y * y)), k = (1 + .02 * b) * R;
+    const a = (z > 0 ? .3 : .14) + b * .35;   // front half brighter
+    const sz = Math.max(1, Math.round(dot)), px = (cx0 + x * k) | 0, py = (cy0 + y * k) | 0;
     for (let v = 0; v < sz; v++) {
       const row = (py + v) * bw;
       if (py + v < 0 || py + v >= bh) continue;
@@ -105,7 +100,7 @@ export function start(sphere, audio, { visible, color }) {
   const cx = sphere.getContext("2d"), ax = audio.getContext("2d");
   createTimer({ onUpdate: self => {
     const dt = Math.min(.05, self.deltaTime / 1000);
-    m.rot += m.spin * dt; m.flowT += m.flow * dt;   // integrated, so speed changes never jump
+    m.rot += m.spin * dt;   // integrated, so speed changes never jump
     if (visible()) drawSphere(cx);
     drawBars(ax);
   } });
@@ -117,8 +112,8 @@ export function start(sphere, audio, { visible, color }) {
 
 export function setState(s) {
   state = s;
-  const [spin, amp, level, flow] = MOTION[s] || MOTION.idle, lvl = muted && s === "idle" ? 0 : level, [r, g, b] = hex(COLORS[s] || COLORS.idle);
-  animate(m, { spin: reduced ? spin * .2 : spin, amp: reduced ? 0 : amp, lvl, flow: reduced ? flow * .2 : flow, r, g, b,
+  const [spin, amp, level] = MOTION[s] || MOTION.idle, lvl = muted && s === "idle" ? 0 : level, [r, g, b] = hex(COLORS[s] || COLORS.idle);
+  animate(m, { spin: reduced ? spin * .2 : spin, amp: reduced ? 0 : amp, lvl, r, g, b,
                duration: 1400, ease: "inOutSine", onUpdate: () => onColor(`rgb(${m.r | 0}, ${m.g | 0}, ${m.b | 0})`) });
   beatAnim?.pause();
   beatAnim = amp && !reduced
