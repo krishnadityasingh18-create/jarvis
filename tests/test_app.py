@@ -369,3 +369,37 @@ def test_save_screenshot_attaches_a_png_and_reports_failures(tmp_path):
         raise OSError("no display")
     assert save_screenshot(tmp_path, grab=fail) == {"type": "banner",
                                                     "text": "Couldn't take a screenshot: no display"}
+
+
+def test_screenshot_hides_only_the_jarvis_window_and_puts_it_back(monkeypatch):
+    from jarvis import app as app_mod
+    from jarvis.tools import windows
+    log = []
+    monkeypatch.setattr(windows, "list_top", lambda: [
+        {"hwnd": 1, "title": "Jarvis", "exe": r"C:\\Program Files\\Edge\\msedge.exe"},
+        {"hwnd": 2, "title": "Jarvis notes.txt - Notepad", "exe": "notepad.exe"},
+        {"hwnd": 3, "title": "Jarvis", "exe": "notepad.exe"},
+        {"hwnd": 4, "title": "Jarvis", "exe": "msedge"}])   # list_top reports bare names too
+    monkeypatch.setattr(windows, "_show", lambda h, cmd: log.append(("show", h, cmd)))
+    monkeypatch.setattr(windows, "_bring", lambda h: log.append(("bring", h)))
+
+    def grab():
+        log.append("grab")
+        return "image"
+    assert app_mod.grab_without_jarvis(grab, wait=0) == "image"
+    assert log == [("show", 1, app_mod.SW_HIDE), ("show", 4, app_mod.SW_HIDE), "grab",
+                   ("show", 1, app_mod.SW_SHOW), ("bring", 1), ("show", 4, app_mod.SW_SHOW), ("bring", 4)]
+
+
+def test_screenshot_puts_the_window_back_even_if_the_grab_fails(monkeypatch):
+    from jarvis import app as app_mod
+    from jarvis.tools import windows
+    log = []
+    monkeypatch.setattr(windows, "list_top", lambda: [{"hwnd": 1, "title": "Jarvis", "exe": "msedge.exe"}])
+    monkeypatch.setattr(windows, "_show", lambda h, cmd: log.append(cmd))
+    monkeypatch.setattr(windows, "_bring", lambda h: log.append("bring"))
+
+    def grab():
+        raise OSError("no display")
+    r = app_mod.save_screenshot(grab=lambda: app_mod.grab_without_jarvis(grab, wait=0))
+    assert r["type"] == "banner" and log == [app_mod.SW_HIDE, app_mod.SW_SHOW, "bring"]

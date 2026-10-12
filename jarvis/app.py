@@ -227,11 +227,38 @@ class Hub:
         self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(coro()))
 
 
-def save_screenshot(folder: Path | None = None, grab=None) -> dict:
-    """The UI's "Take a screenshot": every screen, saved next to the uploads, then attached."""
+WINDOW_TITLE = "Jarvis"   # the desk window's title (the page's <title>)
+SW_HIDE, SW_SHOW = 0, 5
+REPAINT_S = .25           # after hiding, give the windows underneath a moment to repaint
+
+
+def grab_without_jarvis(grab=None, wait=REPAINT_S):
+    """The screen as the user sees it with JARVIS's own window out of the way: hidden
+    (instant; minimising animates and can be caught mid-fade), captured, then put back."""
+    import time
+
+    from jarvis.tools import windows
     if grab is None:
         from PIL import ImageGrab
         grab = lambda: ImageGrab.grab(all_screens=True)  # noqa: E731
+    mine = [w["hwnd"] for w in windows.list_top()
+            if w["title"] == WINDOW_TITLE and Path(w["exe"]).stem.lower() == "msedge"]
+    for h in mine:
+        windows._show(h, SW_HIDE)
+    try:
+        if mine:
+            time.sleep(wait)
+        return grab()
+    finally:
+        for h in mine:
+            windows._show(h, SW_SHOW)
+            windows._bring(h)
+
+
+def save_screenshot(folder: Path | None = None, grab=None) -> dict:
+    """The UI's "Take a screenshot": every screen without JARVIS's window, saved next to
+    the uploads, then attached."""
+    grab = grab or grab_without_jarvis
     folder = folder or UPLOADS
     try:
         img = grab()
