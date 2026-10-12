@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import time as clock_time
 import uuid
 from contextlib import asynccontextmanager
@@ -20,6 +21,9 @@ TUNNEL_HEADERS = ("cf-connecting-ip", "x-forwarded-for", "forwarded", "x-real-ip
 def _tunnelled(headers) -> bool:
     return any(h in headers for h in TUNNEL_HEADERS)
 
+
+UPLOADS = Path.home() / "Downloads" / "JARVIS uploads"   # inside files.roots: JARVIS can read them
+MAX_UPLOAD = 10 * 1024 * 1024   # base64 over the socket; uvicorn caps a message at 16 MB
 
 VOICE_WAIT_S = 20     # the voice loop listens 8 s and always reports back; this is a backstop
 BUTTON_WAIT_S = 60    # no mic: wait this long for a click
@@ -44,6 +48,35 @@ class Hub:
         return {"type": "usage", "spent_inr": round(db.month_spend_inr(self.conn), 2),
                 "cap_inr": self.cfg.monthly_inr, "requests_today": db.requests_today(self.conn)}
 
+    def chats(self) -> dict:
+        return {"type": "chats", "chats": db.chats(self.conn), "current": db.current_chat(self.conn)}
+
+    def history(self) -> dict:
+        return {"type": "history", "messages": db.recent_messages(self.conn, 20),
+                "route": self.route}
+
+    def mic(self) -> dict:
+        return {"type": "mic", "muted": bool(getattr(self.voice, "muted", False)),
+                "available": bool(self.voice and self.voice.available)}
+
+    async def switch_chat(self, chat: int | None) -> None:
+        """chat None: start a new one. Stops the running turn first."""
+        await self._stop_turn()
+        if chat is None:
+            db.new_chat(self.conn)
+        else:
+            db.open_chat(self.conn, chat)
+        await self.broadcast(self.history())
+        await self.broadcast(self.chats())
+
+    async def set_muted(self, muted: bool) -> None:
+        if self.voice:
+            from jarvis.voice import State
+            self.voice.muted = muted
+            if muted and self.voice.fsm.state in (State.LISTENING, State.CONFIRMING):
+                self.voice.event("cancel")
+        await self.broadcast(self.mic())
+
     async def broadcast(self, msg: dict) -> None:
         if self.voice:  # keep the voice state machine in step with the turn
             if msg == {"type": "state", "state": "speaking"}:
@@ -57,6 +90,7 @@ class Hub:
                 self.sockets.discard(ws)
         if msg["type"] == "turn_end":
             await self.broadcast(self.usage())
+            await self.broadcast(self.chats())
 
     async def confirm(self, text: str) -> bool:
         """Ask the user; resolved by a button, a spoken yes/no, a timeout or a cancel (no)."""
@@ -193,6 +227,24 @@ class Hub:
         self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(coro()))
 
 
+def save_upload(name: str, data_b64: str, folder: Path | None = None) -> dict:
+    """A file attached in the UI: saved (never overwriting) where JARVIS's file tools reach."""
+    folder = folder or UPLOADS
+    name = Path(name.replace("\\", "/")).name.strip() or "upload"
+    try:
+        data = base64.b64decode(data_b64, validate=True)
+    except ValueError:
+        return {"type": "banner", "text": f"Couldn't attach {name}: bad data"}
+    if len(data) > MAX_UPLOAD:
+        return {"type": "banner", "text": f"Couldn't attach {name}: over 10 MB"}
+    folder.mkdir(parents=True, exist_ok=True)
+    path, n = folder / name, 1
+    while path.exists():
+        path, n = folder / f"{Path(name).stem} ({n}){Path(name).suffix}", n + 1
+    path.write_bytes(data)
+    return {"type": "uploaded", "name": path.name, "path": str(path)}
+
+
 def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     hub = Hub(cfg, conn, voice, turn_runner)
 
@@ -232,10 +284,11 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
         await sock.accept()
         hub.loop = asyncio.get_running_loop()
         hub.sockets.add(sock)
-        await sock.send_json({"type": "history", "messages": db.recent_messages(conn, 20),
-                              "route": hub.route})
+        await sock.send_json(hub.history())
         await sock.send_json(hub.usage())
         await sock.send_json({"type": "actions", "actions": db.recent_actions(conn, 30)})
+        await sock.send_json(hub.chats())
+        await sock.send_json(hub.mic())
         try:
             while True:
                 m = await sock.receive_json()
@@ -251,6 +304,15 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                         hub.voice.event("confirm_done")
                 elif m.get("type") == "undo" and isinstance(m.get("id"), int):
                     await hub.undo(m["id"])
+                elif m.get("type") == "new_chat":
+                    await hub.switch_chat(None)
+                elif m.get("type") == "open_chat" and isinstance(m.get("id"), int):
+                    await hub.switch_chat(m["id"])
+                elif m.get("type") == "mute":
+                    await hub.set_muted(bool(m.get("on")))
+                elif m.get("type") == "upload":
+                    await sock.send_json(save_upload(str(m.get("name", "")),
+                                                     str(m.get("data", ""))))
         except WebSocketDisconnect:
             hub.sockets.discard(sock)
 

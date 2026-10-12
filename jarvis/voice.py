@@ -115,6 +115,7 @@ class VoiceLoop:
         self.fsm = VoiceFSM(cfg.barge_in)
         self.lock = threading.RLock()
         self.available = False
+        self.muted = False    # the UI's mic button: frames are dropped, nothing is heard
         self.loaded = False   # models loaded, or loading failed: either way, done trying
         self.cuda = False
         self.whisper = self.kokoro = self.oww = self.vad = None
@@ -195,6 +196,8 @@ class VoiceLoop:
                 time.sleep(10)
 
     def _frame(self, f32: np.ndarray) -> None:
+        if self.muted:
+            return
         pcm = (np.clip(f32, -1, 1) * 32767).astype(np.int16)
         state = self.fsm.state
         if state in (State.IDLE, State.THINKING, State.SPEAKING):

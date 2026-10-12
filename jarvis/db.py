@@ -47,6 +47,8 @@ def connect(path: Path | str) -> sqlite3.Connection:
         conn.execute("ALTER TABLE messages ADD COLUMN actions TEXT DEFAULT ''")
     if "private" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN private INTEGER DEFAULT 0")
+    if "chat" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN chat INTEGER DEFAULT 0")
     if "tainted" not in [r[1] for r in conn.execute("PRAGMA table_info(plans)")]:
         conn.execute("ALTER TABLE plans ADD COLUMN tainted INTEGER DEFAULT 0")
     return conn
@@ -55,19 +57,49 @@ def connect(path: Path | str) -> sqlite3.Connection:
 def add_message(conn, role: str, content: str, screen: str = "", route: str = "",
                 interrupted: bool = False, actions: str = "", private: bool = False) -> int:
     cur = conn.execute(
-        "INSERT INTO messages(ts,role,content,screen,route,interrupted,actions,private) "
-        "VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO messages(ts,role,content,screen,route,interrupted,actions,private,chat) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
         (datetime.now().isoformat(), role, content, screen, route, int(interrupted), actions,
-         int(private)))
+         int(private), current_chat(conn)))
     return cur.lastrowid
 
 
 def recent_messages(conn, n: int = 20) -> list[dict]:
+    """The current chat's last n messages (the model's memory of this conversation)."""
     rows = conn.execute(
         "SELECT role,content,screen,route,interrupted,actions,private FROM messages "
-        "ORDER BY id DESC LIMIT ?",
-        (n,)).fetchall()
+        "WHERE chat=? ORDER BY id DESC LIMIT ?",
+        (current_chat(conn), n)).fetchall()
     return [dict(r) for r in reversed(rows)]
+
+
+def current_chat(conn) -> int:
+    row = conn.execute("SELECT value FROM kv WHERE key='chat'").fetchone()
+    return int(row[0]) if row else 0
+
+
+def open_chat(conn, chat: int) -> None:
+    conn.execute("INSERT OR REPLACE INTO kv(key, value) VALUES('chat', ?)", (str(chat),))
+
+
+def new_chat(conn) -> int:
+    """Start a fresh conversation; an empty current chat is reused, never filed."""
+    cur = current_chat(conn)
+    if not conn.execute("SELECT 1 FROM messages WHERE chat=?", (cur,)).fetchone():
+        return cur
+    nxt = conn.execute("SELECT MAX(chat) FROM messages").fetchone()[0] + 1
+    open_chat(conn, nxt)
+    return nxt
+
+
+def chats(conn, n: int = 30) -> list[dict]:
+    """Past conversations, newest first: id, title (first thing the user said), size, last ts."""
+    rows = conn.execute(
+        "SELECT chat, COUNT(*) AS count, MAX(ts) AS ts, (SELECT content FROM messages m2 "
+        " WHERE m2.chat=m.chat AND role='user' ORDER BY id LIMIT 1) AS title "
+        "FROM messages m GROUP BY chat ORDER BY MAX(id) DESC LIMIT ?", (n,)).fetchall()
+    return [{"id": r["chat"], "title": r["title"] or "(no words)", "count": r["count"],
+             "ts": r["ts"]} for r in rows]
 
 
 def record_usage(conn, provider: str, model: str, tokens_in: int, tokens_out: int,

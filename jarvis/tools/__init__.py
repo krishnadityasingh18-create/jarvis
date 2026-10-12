@@ -159,6 +159,8 @@ async def run(ctx: Ctx, call: dict) -> str:
         if not await ctx.confirm(q):
             await _log(ctx, name, args, DECLINED, "declined", None)
             return DECLINED
+    # the UI's neural view lights the module that's working (tools/<module>.py)
+    await ctx.emit({"type": "tool", "name": name, "module": t.fn.__module__.rsplit(".", 1)[-1]})
     if inspect.iscoroutinefunction(t.fn):
         task = asyncio.ensure_future(t.fn(ctx, **args))
     else:

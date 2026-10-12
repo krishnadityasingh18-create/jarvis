@@ -22,6 +22,8 @@ def connect(client):
     assert w.receive_json()["type"] == "history"
     assert w.receive_json()["type"] == "usage"
     assert w.receive_json()["type"] == "actions"
+    assert w.receive_json()["type"] == "chats"
+    assert w.receive_json()["type"] == "mic"
     return ws, w
 
 
@@ -313,3 +315,43 @@ def test_late_voice_answer_does_not_approve_next_question(cfg, conn, monkeypatch
         recv_until(ws, lambda m: m["type"] == "turn_end")
         ctx.__exit__(None, None, None)
     assert log == [True, False]
+
+
+def test_new_chat_files_the_old_one_and_open_chat_resumes_it(cfg, conn):
+    from jarvis import db
+    db.add_message(conn, "user", "first question")
+    db.add_message(conn, "assistant", "first answer")
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "new_chat"})
+        hist = recv_until(ws, lambda m: m["type"] == "history")[-1]
+        assert hist["messages"] == []
+        chats = recv_until(ws, lambda m: m["type"] == "chats")[-1]
+        old = [c for c in chats["chats"] if c["title"] == "first question"][0]
+        assert old["count"] == 2 and chats["current"] != old["id"]
+        ws.send_json({"type": "new_chat"})   # the new chat is still empty: reused, not filed
+        assert recv_until(ws, lambda m: m["type"] == "chats")[-1]["current"] == chats["current"]
+        ws.send_json({"type": "open_chat", "id": old["id"]})
+        hist = recv_until(ws, lambda m: m["type"] == "history")[-1]
+        assert [m["content"] for m in hist["messages"]] == ["first question", "first answer"]
+        ctx.__exit__(None, None, None)
+
+
+def test_mute_without_a_mic_reports_back(cfg, conn):
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "mute", "on": True})
+        assert recv_until(ws, lambda m: m["type"] == "mic")[-1]["available"] is False
+        ctx.__exit__(None, None, None)
+
+
+def test_save_upload_never_overwrites_and_strips_paths(tmp_path):
+    import base64
+
+    from jarvis.app import save_upload
+    data = base64.b64encode(b"hello").decode()
+    a = save_upload(r"..\..\evil.txt", data, tmp_path)
+    b = save_upload("evil.txt", data, tmp_path)
+    assert a["name"] == "evil.txt" and b["name"] == "evil (1).txt"
+    assert (tmp_path / "evil (1).txt").read_bytes() == b"hello"
+    assert save_upload("x.txt", "not base64!", tmp_path)["type"] == "banner"

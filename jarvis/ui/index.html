@@ -5,184 +5,371 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>JARVIS</title>
 <link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
 <style>
   :root {
-    --bg: #0d1117; --panel: #151b23; --line: #262d36; --text: #e6edf3; --dim: #8b949e;
-    --idle: #3b4654; --listening: #2f81f7; --thinking: #d29922; --speaking: #3fb950;
-    --warn-bg: #3d2e00; --warn: #f2cc60;
+    --bg: #05080D; --panel: rgba(8, 13, 20, .72); --line: #16222E; --text: #D7E6F0;
+    --dim: #9FB4C4; --mute: #7C93A6; --warn: #FFB454;
+    --idle: #5CE1FF; --listening: #D8E06A; --thinking: #FF6B5E; --speaking: #E07BFF;
+    --confirming: #7CF5C4; --off: #7C93A6;
+    --acc: #5CE1FF;   /* hud.js fades it to the state colour (core.COLORS) */
+    --mono: "IBM Plex Mono", Consolas, monospace;
+    --head: "Chakra Petch", Bahnschrift, "Segoe UI", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; height: 100vh; display: grid; grid-template-rows: auto auto auto 1fr auto auto;
-         background: var(--bg); color: var(--text); font: 15px/1.5 "Segoe UI", system-ui, sans-serif; }
-  header { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
-  #orb { width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer; flex: none;
-         background: var(--idle); transition: background .2s, box-shadow .2s; }
-  #orb.listening { background: var(--listening); box-shadow: 0 0 18px var(--listening); animation: pulse 1.2s infinite; }
-  #orb.thinking  { background: var(--thinking);  box-shadow: 0 0 14px var(--thinking); }
-  #orb.confirming { background: var(--listening); box-shadow: 0 0 18px var(--warn); animation: pulse 1.2s infinite; }
-  #orb.speaking  { background: var(--speaking);  box-shadow: 0 0 18px var(--speaking); animation: pulse .8s infinite; }
-  @keyframes pulse { 50% { transform: scale(1.08); } }
-  #orb:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
-  h1 { margin: 0; font-size: 17px; letter-spacing: .12em; font-weight: 600; }
-  #status { color: var(--dim); font-size: 13px; }
-  #meter { margin-left: auto; color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
-  #banners:empty { display: none; }
-  .banner { background: var(--warn-bg); color: var(--warn); padding: 6px 20px; font-size: 13px;
-            display: flex; justify-content: space-between; gap: 12px; }
-  .banner button { background: none; border: none; color: var(--warn); cursor: pointer; font-size: 15px; }
-  #actions { border-bottom: 1px solid var(--line); font-size: 13px; }
-  #actions summary { padding: 6px 20px; color: var(--dim); cursor: pointer; }
-  #actlist { list-style: none; margin: 0; padding: 0 20px 8px; max-height: 30vh; overflow-y: auto; }
-  #actlist li { display: flex; gap: 10px; align-items: center; padding: 3px 0; }
-  #actlist .t { color: var(--dim); font-variant-numeric: tabular-nums; }
-  #actlist .tool { font-family: Consolas, monospace; }
-  #actlist .args { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
-  #actlist .agent { color: var(--thinking); }
-  #actlist .done { color: var(--speaking); } #actlist .failed { color: #f85149; } #actlist .undone, #actlist .declined { color: var(--dim); }
-  #actlist button, #confirm button { background: var(--panel); color: var(--text); border: 1px solid var(--line);
-    border-radius: 6px; padding: 2px 10px; cursor: pointer; font: inherit; }
-  #confirm { display: none; align-items: center; gap: 12px; padding: 10px 20px; background: var(--warn-bg); color: var(--warn); }
-  #confirm.open { display: flex; }
-  #confirm .q { flex: 1; } #confirm .left { font-variant-numeric: tabular-nums; }
-  #confirm .yes { border-color: var(--speaking); }
-  main { display: grid; grid-template-columns: minmax(260px, 2fr) 3fr; min-height: 0; }
-  #transcript, #detail { overflow-y: auto; padding: 16px 20px; }
-  #transcript { border-right: 1px solid var(--line); }
-  .msg { margin: 0 0 10px; max-width: 95%; }
-  .msg.user { color: var(--dim); }
-  .msg.user::before { content: "You  "; font-size: 11px; letter-spacing: .08em; }
-  .msg.assistant::before { content: "JARVIS  "; font-size: 11px; letter-spacing: .08em; color: var(--speaking); }
-  .msg.cut::after { content: " …"; color: var(--dim); }
-  #detail { background: var(--panel); }
-  #detail:empty::before { content: "Detail appears here when there is more than fits in a spoken reply."; color: var(--dim); }
-  #detail pre { background: var(--bg); padding: 10px; border-radius: 6px; overflow-x: auto; }
-  #detail code { font-family: Consolas, monospace; font-size: 13px; }
-  #detail table { border-collapse: collapse; } #detail td, #detail th { border: 1px solid var(--line); padding: 4px 8px; }
-  #detail a { color: var(--listening); }
-  footer { display: flex; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--line); }
-  #text { flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--line);
-          border-radius: 6px; padding: 9px 12px; font: inherit; }
-  select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; font: inherit; }
-  @media (max-width: 700px) { main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
-                              #transcript { border-right: none; border-bottom: 1px solid var(--line); } }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--body); overflow: hidden;
+         background-image: radial-gradient(ellipse 60% 55% at 50% 45%, color-mix(in srgb, var(--acc) 10%, transparent), transparent 70%); }
+  button, input { font: inherit; color: inherit; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .ic { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  /* ---- sidebar (from the mockup) */
+  .side { position: fixed; left: 0; top: 0; bottom: 0; z-index: 5; width: 64px; padding: 16px 8px; overflow: hidden;
+          background: #080D14; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px;
+          transition: width .28s cubic-bezier(.2,.8,.2,1); }
+  .side:hover, .side:focus-within { width: 236px; }
+  .nav { width: 100%; height: 48px; padding: 0 0 0 13px; border: 0; border-radius: 12px; background: transparent; color: var(--dim);
+         font: 500 15px var(--head); letter-spacing: .03em; display: flex; align-items: center; gap: 15px; white-space: nowrap;
+         cursor: pointer; text-align: left; transition: background .2s, color .2s; }
+  .nav:hover { background: #101A25; color: var(--text); }
+  .nav.on { color: var(--acc); background: color-mix(in srgb, var(--acc) 12%, transparent); }
+  .nav .t { opacity: 0; transition: opacity .2s; }
+  .side:hover .t, .side:focus-within .t { opacity: 1; }
+  .mark { width: 22px; height: 22px; flex: none; border-radius: 50%;
+          background: radial-gradient(circle at 34% 28%, #F2FDFF 0%, var(--acc) 22%, color-mix(in srgb, var(--acc) 45%, #04121C) 62%, #030C14 100%); }
+
+  /* ---- HUD frame */
+  .hud { margin-left: 64px; height: 100vh; display: grid; grid-template-rows: auto 1fr; padding: 18px 22px 16px; gap: 10px; }
+  .top { display: grid; grid-template-columns: 300px 1fr 320px; align-items: start; gap: 22px; }
+  .brand h1 { margin: 0; font: 600 30px/1 var(--head); letter-spacing: .32em; }
+  .brand p, .label { margin: 4px 0 0; font: 400 10px var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--mute); }
+  .chips { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 22px; padding-top: 6px; font: 500 11px var(--mono);
+           letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+  .chips b { color: var(--acc); font-weight: 500; }
+  .chips .dot::before { content: "● "; color: var(--acc); }
+  .clock { text-align: right; font: 500 46px/1 var(--head); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+  .clock small { font-size: 22px; color: var(--acc); }
+  .clock .label { text-align: right; }
+
+  .grid { display: grid; grid-template-columns: 300px 1fr 320px; gap: 22px; min-height: 0; }
+  .col { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .panel { border: 1px solid color-mix(in srgb, var(--acc) 20%, var(--line)); background: var(--panel); padding: 12px 14px;
+           transition: border-color .5s; min-height: 0; }
+  .panel h2 { margin: 0 0 10px; display: flex; justify-content: space-between; gap: 8px; font: 500 11px var(--mono);
+              letter-spacing: .22em; text-transform: uppercase; color: var(--acc); }
+  .panel h2 span { color: var(--mute); letter-spacing: .14em; }
+  .grow { flex: 1; display: flex; flex-direction: column; }
+  .scroll { overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--acc) 30%, transparent) transparent; }
+
+  /* vitals */
+  .vital { padding: 6px 0 8px; border-bottom: 1px solid var(--line); }
+  .vital:last-child { border-bottom: 0; }
+  .vital .k { display: flex; justify-content: space-between; font: 400 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--mute); }
+  .vital .k b { color: var(--acc); font-weight: 500; }
+  .vital .v { font: 500 26px/1.15 var(--head); font-variant-numeric: tabular-nums; }
+  .vital .v small { font-size: 13px; color: var(--mute); }
+  .bar { height: 2px; background: var(--line); margin-top: 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--acc); transition: background .5s; }
+  .bar.warn i { background: var(--warn); }
+
+  /* transcript + actions */
+  .msg { margin: 0 0 9px; font-size: 13px; }
+  .msg.user { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+  .msg.user::before { content: "› "; color: var(--mute); }
+  .msg.assistant::before { content: "◇ "; color: var(--acc); }
+  .msg.cut::after { content: " …"; color: var(--mute); }
+  #transcript:empty::before, #detail:empty::before { color: var(--mute); font-size: 12px; }
+  #transcript:empty::before { content: "Nothing said yet in this chat."; }
+  #detail:empty::before { content: "Longer answers, tables and links land here."; }
+  #actlist { list-style: none; margin: 0; padding: 0; font: 400 12px var(--mono); }
+  #actlist li { display: grid; grid-template-columns: 14px 1fr auto auto; gap: 8px; align-items: center; padding: 3px 0; }
+  #actlist .tool { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #actlist .tool em { font-style: normal; color: var(--mute); }
+  #actlist .t { color: var(--mute); font-variant-numeric: tabular-nums; }
+  #actlist .done { color: var(--confirming); } #actlist .failed { color: var(--thinking); }
+  #actlist .undone, #actlist .declined { color: var(--mute); }
+  .mini { border: 1px solid var(--line); background: transparent; padding: 1px 8px; font: 500 10px var(--mono); letter-spacing: .14em;
+          text-transform: uppercase; cursor: pointer; color: var(--dim); }
+  .mini:hover { border-color: var(--acc); color: var(--text); }
+
+  /* ---- centre stage */
+  .stage { position: relative; display: flex; flex-direction: column; min-height: 0; }
+  .view { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  .grid > *, .top > * { min-width: 0; }
+  .floor { position: absolute; left: -10%; right: -10%; bottom: 0; height: 38%; pointer-events: none;
+           background-image: linear-gradient(color-mix(in srgb, var(--acc) 26%, transparent) 1px, transparent 1px),
+                             linear-gradient(90deg, color-mix(in srgb, var(--acc) 26%, transparent) 1px, transparent 1px);
+           background-size: 46px 46px; transform: perspective(420px) rotateX(62deg); transform-origin: bottom;
+           mask-image: linear-gradient(to top, #000 10%, transparent 85%); }
+  #core { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; }
+  #core canvas { width: 100%; height: 100%; display: block; }
+  .cards { position: absolute; top: 0; left: 0; right: 0; z-index: 2; display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; pointer-events: none; }
+  .card { pointer-events: auto; display: flex; gap: 10px; align-items: flex-start; max-width: 340px; padding: 8px 8px 8px 12px;
+          border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent); border-left-width: 3px; background: rgba(5, 8, 13, .88);
+          font: 400 11px var(--mono); color: var(--dim); }
+  .card b { display: block; font: 500 11px var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--text); }
+  .card b::before { content: "◇ "; color: var(--acc); }
+  .card button { border: 0; background: none; color: var(--mute); cursor: pointer; min-width: 28px; min-height: 28px; }
+
+  #confirm { position: absolute; left: 50%; top: 50%; z-index: 3; translate: -50% -50%; width: min(440px, 92%); display: none;
+             padding: 16px 18px; border: 1px solid var(--acc); background: rgba(5, 8, 13, .94);
+             box-shadow: 0 0 40px color-mix(in srgb, var(--acc) 25%, transparent); }
+  #confirm.open { display: block; }
+  #confirm .q { margin: 8px 0 14px; font-size: 16px; }
+  #confirm .row { display: flex; gap: 10px; align-items: center; }
+  #confirm .left { margin-left: auto; font: 500 12px var(--mono); color: var(--acc); }
+  .btn { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); background: #0B121A; cursor: pointer;
+         font: 500 12px var(--mono); letter-spacing: .18em; text-transform: uppercase; }
+  .btn:hover { border-color: var(--acc); }
+  .btn.yes { border-color: var(--acc); color: var(--acc); }
+
+  .readout { text-align: center; padding: 4px 0 10px; }
+  #big { margin: 2px 0 0; font: 500 clamp(34px, 5.4vw, 66px)/1 var(--head); letter-spacing: .04em; text-transform: uppercase;
+         text-shadow: 0 0 24px color-mix(in srgb, var(--acc) 40%, transparent); }
+  .readout .bar { width: min(360px, 80%); margin: 10px auto 6px; }
+  .stats { font: 400 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--mute); }
+  .stats b { color: var(--text); font-weight: 500; }
+  #caption { margin: 8px auto 0; max-width: 620px; min-height: 21px; color: var(--dim); font-size: 14px;
+             overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+  /* controls (from the mockup) */
+  .dock { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  #files { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  #files:empty { display: none; }
+  #files li { display: inline-flex; align-items: center; height: 36px; padding-left: 14px; border-radius: 18px; background: #0B121A;
+              border: 1px solid var(--line); font-size: 13px; }
+  #files span { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-wrap { display: flex; align-items: center; gap: 8px; padding: 7px; border-radius: 34px; background: #0B121A;
+              border: 1px solid var(--line); max-width: 100%; }
+  .ctl { width: 48px; height: 48px; padding: 0; border-radius: 24px; border: 1px solid #27394A; background: transparent;
+         display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none;
+         transition: background .2s, border-color .2s, color .2s; }
+  .ctl:hover { border-color: var(--acc); }
+  .ctl.muted { background: var(--warn); border-color: var(--warn); color: #1A1206; }
+  .ctl:disabled { opacity: .45; cursor: not-allowed; }
+  .ctl:focus-within { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .typer { display: flex; align-items: center; height: 48px; border: 1px solid #27394A; border-radius: 24px; transition: border-color .2s; }
+  .typer:hover, .typer:focus-within, .typer.open { border-color: var(--acc); }
+  .typer .ctl { border: 0; width: 46px; height: 46px; }
+  .typer.open .ctl { color: var(--acc); }
+  .field { width: 0; overflow: hidden; transition: width .38s cubic-bezier(.2,.8,.2,1); }
+  .typer.open .field { width: min(380px, 40vw); }
+  .field input { width: min(380px, 40vw); height: 46px; border: 0; outline: none; background: transparent; padding: 0 18px 0 4px; font-size: 15px; }
+  .field input::placeholder { color: var(--mute); }
+  .x { width: 36px; height: 36px; border: 0; border-radius: 18px; background: transparent; color: var(--dim); cursor: pointer;
+       display: inline-flex; align-items: center; justify-content: center; }
+
+  /* chats + neural views */
+  .pane { position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; padding: 36px 8px 8px; }
+  .pane h2 { margin: 0 0 18px; font: 500 20px var(--head); letter-spacing: .1em; text-transform: uppercase; }
+  #chatlist { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 10px; list-style: none; margin: 0; padding: 0; }
+  .row { width: 100%; min-height: 60px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 12px; background: #0B121A;
+         text-align: left; display: flex; flex-direction: column; gap: 3px; cursor: pointer; }
+  .row:hover, .row.cur { border-color: var(--acc); }
+  .row .ti { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .me { font: 400 11px var(--mono); letter-spacing: .1em; color: var(--mute); }
+  .net { position: relative; width: min(440px, 100%, 50vh); aspect-ratio: 1; flex: none; }
+  .net svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .ln { stroke: #22323F; stroke-width: 1.5px; vector-effect: non-scaling-stroke; transition: stroke .3s; }
+  .ln.on { stroke: var(--acc); }
+  .nd { position: absolute; width: 12%; aspect-ratio: 1; border-radius: 50%; border: 1.5px solid #27394A; background: #0B121A;
+        transition: border-color .3s, background .3s, box-shadow .3s; }
+  .nd.on { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 30%, #0B121A);
+           box-shadow: 0 0 22px color-mix(in srgb, var(--acc) 55%, transparent); }
+  .nd.core { left: 40%; top: 40%; width: 20%; display: flex; align-items: center; justify-content: center; font: 600 14px var(--head); letter-spacing: .06em; }
+  .lb { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; font: 500 13px var(--head); letter-spacing: .04em; color: var(--dim); }
+  .lb.up { bottom: calc(100% + 8px); } .lb.dn { top: calc(100% + 8px); }
+  .nd.on .lb { color: var(--text); }
+  #netcap { margin: 30px 0 0; text-align: center; color: var(--dim); }
+  #netcap span { color: var(--mute); }
+
+  /* right column */
+  .deck { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+  .cmd { min-height: 34px; padding: 0 6px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left;
+         font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }
+  .cmd::before { content: "● "; color: var(--acc); font-size: 8px; vertical-align: 2px; }
+  .cmd:hover { color: var(--text); background: color-mix(in srgb, var(--acc) 8%, transparent); }
+  .cmd.stop::before { color: var(--thinking); }
+  .seg { display: flex; border: 1px solid var(--line); }
+  .seg button { flex: 1; min-height: 34px; border: 0; background: transparent; cursor: pointer; font: 500 11px var(--mono);
+                letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--acc) 16%, transparent); color: var(--acc); }
+  .hint { margin: 8px 0 0; font: 400 10px var(--mono); letter-spacing: .1em; color: var(--mute); }
+  #detail { font-size: 13px; }
+  #detail h1, #detail h2, #detail h3 { font: 500 15px var(--head); letter-spacing: .04em; margin: 10px 0 6px; color: var(--text); }
+  #detail pre { background: #0B121A; padding: 8px; overflow-x: auto; }
+  #detail code { font-family: var(--mono); font-size: 12px; }
+  #detail table { border-collapse: collapse; } #detail td, #detail th { border: 1px solid var(--line); padding: 3px 7px; }
+  #detail a { color: var(--acc); }
+  #audio { width: 100%; height: 44px; display: block; }
+
+  @media (max-width: 1240px) { .top, .grid { grid-template-columns: 250px 1fr 270px; gap: 16px; } }
+  @media (max-width: 960px) {
+    body { overflow: auto; }
+    .hud { height: auto; }
+    .top, .grid { grid-template-columns: minmax(0, 1fr); }
+    .chips, .clock, .clock .label { justify-content: flex-start; text-align: left; }
+    .stage { order: -1; } .view { height: 380px; flex: none; }
+    .col .scroll { max-height: 280px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .side, .field { transition: none; } }
 </style>
 </head>
-<body>
-<header>
-  <button id="orb" class="idle" title="Click to stop" aria-label="Status; click to stop the current reply"></button>
-  <div><h1>JARVIS</h1><div id="status" aria-live="polite">Connecting…</div></div>
-  <div id="meter"></div>
-</header>
-<div id="banners" role="status"></div>
-<details id="actions"><summary>Actions</summary><ol id="actlist" aria-label="Action log"></ol></details>
-<main>
-  <section id="transcript" aria-label="Transcript"></section>
-  <section id="detail" aria-label="Detail"></section>
-</main>
-<div id="confirm" role="alertdialog" aria-live="assertive">
-  <span class="q"></span><span class="left"></span>
-  <button class="yes">Confirm</button><button class="no">Cancel</button>
+<body data-state="off">
+<nav class="side" aria-label="Main">
+  <button class="nav" type="button" data-view="home" style="margin-bottom:14px;color:var(--text);letter-spacing:.32em;font-weight:600">
+    <span class="mark" aria-hidden="true"></span><span class="t">JARVIS</span></button>
+  <button class="nav" type="button" id="newchat">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/><path d="M17.5 3.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 8.5-8.5z"/></svg>
+    <span class="t">New chat</span></button>
+  <button class="nav" type="button" data-view="chats" aria-pressed="false">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>
+    <span class="t">Previous chats</span></button>
+  <button class="nav" type="button" data-view="brain" aria-pressed="false">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M6.5 6.5l3.6 3.6M17.5 6.5l-3.6 3.6M6.5 17.5l3.6-3.6M17.5 17.5l-3.6-3.6"/></svg>
+    <span class="t">Neural view</span></button>
+</nav>
+
+<div class="hud">
+  <header class="top">
+    <div class="brand"><h1>J.A.R.V.I.S.</h1><p>Just a rather very intelligent system</p></div>
+    <div class="chips" aria-live="polite">
+      <span class="dot">Core · <b id="st">Connecting</b></span>
+      <span>Link · <b id="link">Offline</b></span>
+      <span>Mic · <b id="micst">Off</b></span>
+      <span>Route · <b id="routest">fast</b></span>
+    </div>
+    <div class="clock"><span id="hm">--:--</span><small id="ss">:--</small><p class="label" id="date"></p></div>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <section class="panel" aria-label="System vitals">
+        <h2>System vitals <span>this month</span></h2>
+        <div class="vital"><div class="k">Spend <b id="pct">0%</b></div>
+          <div class="v"><span id="spentv">₹0</span> <small>of <span id="capv">₹0</span></small></div><div class="bar" id="spendbar"><i></i></div></div>
+        <div id="reqs"></div>
+      </section>
+      <section class="panel grow" style="flex:1.4" aria-label="Transcript">
+        <h2>Transcript <span id="chatno"></span></h2>
+        <div class="scroll" id="transcript"></div>
+      </section>
+      <section class="panel grow" aria-label="Action log">
+        <h2>Actions <span>undo</span></h2>
+        <div class="scroll"><ol id="actlist"></ol></div>
+      </section>
+    </div>
+
+    <main class="stage">
+      <div class="view">
+        <div class="cards" id="banners" role="status"></div>
+        <div id="home">
+          <div class="floor" aria-hidden="true"></div>
+          <button id="core" type="button" aria-label="Stop the current reply"><canvas id="sphere"></canvas></button>
+        </div>
+        <section class="pane" id="chats" hidden aria-label="Previous chats">
+          <h2>Previous chats</h2><ul id="chatlist"></ul>
+        </section>
+        <section class="pane" id="brain" hidden aria-label="Neural view">
+          <div class="net">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <line class="ln" data-k="memory" x1="50" y1="40" x2="50" y2="18"/>
+              <line class="ln" data-k="research" x1="57.07" y1="42.93" x2="72.63" y2="27.37"/>
+              <line class="ln" data-k="system" x1="60" y1="50" x2="82" y2="50"/>
+              <line class="ln" data-k="hardware" x1="57.07" y1="57.07" x2="72.63" y2="72.63"/>
+              <line class="ln" data-k="voice" x1="50" y1="60" x2="50" y2="82"/>
+              <line class="ln" data-k="study" x1="42.93" y1="57.07" x2="27.37" y2="72.63"/>
+              <line class="ln" data-k="comms" x1="40" y1="50" x2="18" y2="50"/>
+              <line class="ln" data-k="planner" x1="42.93" y1="42.93" x2="27.37" y2="27.37"/>
+            </svg>
+            <div class="nd core" data-k="core">Core</div>
+            <div class="nd" data-k="memory" style="left:44%;top:6%"><span class="lb up">Memory</span></div>
+            <div class="nd" data-k="research" style="left:70.87%;top:17.13%"><span class="lb up">Research</span></div>
+            <div class="nd" data-k="system" style="left:82%;top:44%"><span class="lb dn">System</span></div>
+            <div class="nd" data-k="hardware" style="left:70.87%;top:70.87%"><span class="lb dn">Hardware</span></div>
+            <div class="nd" data-k="voice" style="left:44%;top:82%"><span class="lb dn">Voice</span></div>
+            <div class="nd" data-k="study" style="left:17.13%;top:70.87%"><span class="lb dn">Study</span></div>
+            <div class="nd" data-k="comms" style="left:6%;top:44%"><span class="lb dn">Comms</span></div>
+            <div class="nd" data-k="planner" style="left:17.13%;top:17.13%"><span class="lb up">Planner</span></div>
+          </div>
+          <p id="netcap"><span>Waiting for a command</span></p>
+        </section>
+        <div id="confirm" role="alertdialog" aria-labelledby="cq">
+          <p class="label" style="color:var(--acc)">◇ Confirmation required</p>
+          <p class="q" id="cq"></p>
+          <div class="row"><button class="btn yes" type="button">Confirm</button><button class="btn no" type="button">Cancel</button><span class="left" id="cleft"></span></div>
+        </div>
+      </div>
+
+      <div class="readout">
+        <p class="label" id="directive">Primary directive · route fast</p>
+        <p id="big">Standing by</p>
+        <div class="bar" id="bigbar"><i></i></div>
+        <div class="stats">Spent <b id="statspent">₹0</b> · cap <b id="statcap">₹0</b> · requests today <b id="stattotal">0</b></div>
+        <p id="caption"></p>
+      </div>
+
+      <div class="dock">
+        <ul id="files" aria-label="Attached files"></ul>
+        <div class="bar-wrap">
+          <button class="ctl" id="mic" type="button" aria-pressed="false" aria-label="Mute microphone" title="Mute microphone">
+            <svg class="ic on" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+            <svg class="ic off" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M4 4l16 16"/><path d="M9 9v3a3 3 0 0 0 5.1 2.1"/><path d="M15 11V6a3 3 0 0 0-5.7-1.3"/><path d="M5 11a7 7 0 0 0 11.2 5.6"/><path d="M19 11a7 7 0 0 1-.6 2.8"/><path d="M12 18v3"/></svg>
+          </button>
+          <div class="typer" id="typer">
+            <button class="ctl" id="typebtn" type="button" aria-label="Type a command" aria-expanded="false" title="Type a command">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
+            <div class="field"><label class="sr" for="text">Type a command</label>
+              <input id="text" type="text" autocomplete="off" tabindex="-1" placeholder="Type a command, or say “Hey Jarvis”"></div>
+          </div>
+          <label class="ctl" title="Attach files (up to 10 MB each)"><span class="sr">Attach files</span>
+            <input class="sr" id="upload" type="file" multiple>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></label>
+        </div>
+      </div>
+    </main>
+
+    <div class="col">
+      <section class="panel" aria-label="Command deck">
+        <h2>Command deck <span>one tap</span></h2>
+        <div class="deck">
+          <button class="cmd" type="button" data-say="Give me my morning briefing.">AM brief</button>
+          <button class="cmd" type="button" data-say="What's my plan for today?">Plan today</button>
+          <button class="cmd" type="button" data-say="What reminders and tasks do I have?">Reminders</button>
+          <button class="cmd" type="button" data-say="Summarise my unread email.">Inbox</button>
+          <button class="cmd" type="button" data-say="What's new on my GitHub?">GitHub</button>
+          <button class="cmd" type="button" data-say="What's the weather today?">Weather</button>
+          <button class="cmd" type="button" data-say="Undo the last thing you did.">Undo last</button>
+          <button class="cmd stop" type="button" id="stopbtn">Stop</button>
+        </div>
+        <p class="hint">Each sends its words to JARVIS, as if typed.</p>
+      </section>
+      <section class="panel" aria-label="Model route">
+        <h2>Route <span>model</span></h2>
+        <div class="seg" id="route">
+          <button type="button" data-r="fast" aria-pressed="true">Fast</button>
+          <button type="button" data-r="reasoning" aria-pressed="false">Reason</button>
+          <button type="button" data-r="local" aria-pressed="false">Local</button>
+        </div>
+      </section>
+      <section class="panel grow" aria-label="Detail">
+        <h2>Detail <span>on screen</span></h2>
+        <div class="scroll" id="detail"></div>
+      </section>
+      <section class="panel" aria-label="Audio">
+        <h2>Audio I/O <span id="aio">idle</span></h2>
+        <canvas id="audio" aria-hidden="true"></canvas>
+      </section>
+    </div>
+  </div>
 </div>
-<footer>
-  <input id="text" placeholder="Type to JARVIS, or say “Hey Jarvis”…" aria-label="Message" autocomplete="off">
-  <select id="route" aria-label="Model route">
-    <option value="fast">fast</option><option value="reasoning">reasoning</option><option value="local">local</option>
-  </select>
-</footer>
+
 <script src="/ui/marked.min.js"></script>
 <script src="/ui/purify.min.js"></script>
-<script>
-const $ = id => document.getElementById(id);
-const LABEL = { idle: "Idle", listening: "Listening…", thinking: "Thinking…", speaking: "Speaking",
-                confirming: "Say yes or no…" };
-const ICON = { done: "✓", failed: "✗", declined: "–", undone: "↶" };
-let ws, screenText = "", current = null, confirmId = null, confirmTimer = null;
-
-function setState(s) { $("orb").className = s; $("status").textContent = LABEL[s] || s; }
-function renderDetail() { $("detail").innerHTML = DOMPurify.sanitize(marked.parse(screenText)); }
-function line(cls, text) {
-  const p = document.createElement("p"); p.className = "msg " + cls; p.textContent = text;
-  $("transcript").append(p); $("transcript").scrollTop = 1e9; return p;
-}
-function banner(text) {
-  const b = document.createElement("div"); b.className = "banner";
-  b.innerHTML = "<span></span><button aria-label='Dismiss'>×</button>";
-  b.firstChild.textContent = text; b.lastChild.onclick = () => b.remove();
-  $("banners").append(b); setTimeout(() => b.remove(), 15000);
-}
-
-function actRow(a) {
-  let li = document.getElementById("act" + a.id);
-  if (!li) { li = document.createElement("li"); li.id = "act" + a.id; $("actlist").prepend(li); }
-  li.replaceChildren();
-  const span = (cls, text) => { const s = document.createElement("span"); s.className = cls; s.textContent = text; li.append(s); return s; };
-  span("t", (a.ts || "").slice(11, 16));
-  span(a.status, ICON[a.status] || a.status).title = a.status + ": " + (a.result || "");
-  span("tool", a.tool);
-  span("args", Object.values(a.args || {}).join(" "));
-  if (a.agent) span("agent", "via " + a.agent);
-  if (a.status === "done" && a.undo) {
-    const b = document.createElement("button"); b.textContent = "Undo";
-    b.onclick = () => send({ type: "undo", id: a.id }); li.append(b);
-  }
-}
-function closeConfirm() { $("confirm").classList.remove("open"); clearInterval(confirmTimer); confirmId = null; }
-function answer(ok) { if (confirmId) send({ type: "confirm_reply", id: confirmId, ok }); }
-
-const on = {
-  history(m) {
-    $("transcript").replaceChildren();
-    for (const h of m.messages) {
-      const p = line(h.role, h.content || (h.screen ? "(on screen)" : "(interrupted)"));
-      if (h.interrupted) p.classList.add("cut");
-    }
-    const last = m.messages.findLast(h => h.role === "assistant");
-    screenText = last ? last.screen : ""; renderDetail();
-    $("route").value = m.route;
-  },
-  usage(m) {
-    const req = Object.entries(m.requests_today).map(([p, n]) => `${p} ${n}`).join(" · ") || "no requests";
-    $("meter").textContent = `₹${m.spent_inr} / ₹${m.cap_inr} · ${req} today`;
-  },
-  state(m) { setState(m.state); },
-  user_text(m) { line("user", m.text); current = null; screenText = ""; renderDetail(); },
-  spoken_sentence(m) {
-    if (!current) current = line("assistant", m.text);
-    else current.textContent += " " + m.text;
-  },
-  screen_delta(m) { screenText += m.text; renderDetail(); },
-  turn_end() { current = null; setState("idle"); },
-  route(m) { $("status").textContent = `${LABEL.thinking} (${m.route})`; },
-  banner(m) { banner(m.text); },
-  actions(m) { $("actlist").replaceChildren(); [...m.actions].reverse().forEach(actRow); },
-  action(m) { actRow(m); },
-  agent(m) { $("status").textContent = `Consulting ${m.agent}…`; },
-  confirm(m) {
-    confirmId = m.id; let left = m.seconds;
-    $("confirm").querySelector(".q").textContent = m.text;
-    const tick = () => { $("confirm").querySelector(".left").textContent = left > 0 ? `${left}s` : ""; left--; };
-    clearInterval(confirmTimer); tick(); confirmTimer = setInterval(tick, 1000);
-    $("confirm").classList.add("open"); $("confirm").querySelector(".no").focus();  // safe default
-  },
-  confirm_done(m) { if (m.id === confirmId) closeConfirm(); },
-};
-
-function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => setState("idle");
-  ws.onmessage = e => { const m = JSON.parse(e.data); on[m.type]?.(m); };
-  ws.onclose = () => { $("status").textContent = "Disconnected, retrying…"; setTimeout(connect, 2000); };
-}
-const send = m => ws?.readyState === 1 && ws.send(JSON.stringify(m));
-
-$("text").addEventListener("keydown", e => {
-  if (e.key === "Enter" && e.target.value.trim()) { send({ type: "text_input", text: e.target.value }); e.target.value = ""; }
-});
-$("orb").onclick = () => send({ type: "cancel" });
-$("confirm").querySelector(".yes").onclick = () => answer(true);
-$("confirm").querySelector(".no").onclick = () => answer(false);
-$("route").onchange = e => send({ type: "set_route", route: e.target.value });
-connect();
-</script>
+<script type="module" src="/ui/hud.js"></script>
 </body>
 </html>
