@@ -1,6 +1,6 @@
 // The core: a perfectly round dot-lattice shell (the user's reference orb) that only
-// ripples, gently, while speaking; and the audio meter. anime.js owns time: one createTimer is the frame loop,
-// and every value the renderer reads (spin, pulse, colour, ripples, bars) is
+// shimmers while speaking; and the audio meter. anime.js owns time: one createTimer is the frame loop,
+// and every value the renderer reads (spin, pulse, colour, shimmer, bars) is
 // tweened by animate().
 import { animate, createTimer, utils } from "/ui/anime.esm.min.js";
 
@@ -21,14 +21,13 @@ for (let i = 0; i < N; i++) {
 
 // everything the renderer reads; only anime.js (and the clock) writes it
 const m = { spin: .1, amp: 0, lvl: 0, beat: 0, scale: .6, rot: 0, r: 207, g: 227, b: 255,
-            wave: 0, rip: 0 };   // speaking: two wavefronts travel out from the middle of the disc
+            rip: 0, shimT: 0 };   // speaking: shimmer strength, and its clock
 const bars = Array.from({ length: 40 }, () => ({ v: 0 }));
-const RIP_W = .08;   // wavefront thickness, as a fraction of the radius
-// one wave at `wave`, the other half a cycle behind; each swells in from the centre and has
-// left the sphere (front > 1.2) before the loop wraps, so nothing ever pops in or out
-const front = (d, f) => Math.min(1, f / .35) * Math.exp(-(((d - f) / RIP_W) ** 2));
-const ripple = d => m.rip && Math.max(front(d, m.wave), front(d, (m.wave + .7) % 1.4)) * m.rip;
-let rippleAnim = null, beatAnim = null, onColor = () => {}, muted = false, state = "off";
+// speaking: many small wavelets running over the surface; they change brightness only,
+// never the radius. Object-space, so they ride the sphere's spin.
+const shimmer = (x, y, z, t) => Math.max(0, Math.sin(9 * x + 7 * y - 3.2 * t) * Math.sin(8 * z - 6 * x + 2.7 * t)
+  + .6 * Math.sin(13 * y + 11 * z - 4.1 * t));
+let beatAnim = null, onColor = () => {}, muted = false, state = "off";
 
 function fit(c) {
   const r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
@@ -65,9 +64,8 @@ function drawSphere(cx) {
   for (let i = 0; i < N; i++) {
     const x0 = P[i * 3], y0 = P[i * 3 + 1], z0 = P[i * 3 + 2];
     const x = x0 * cr + z0 * sr, z1 = -x0 * sr + z0 * cr, y = y0 * ct - z1 * st, z = y0 * st + z1 * ct;
-    // speaking: a small ripple lifts the surface 2% and brightens it a little
-    const b = ripple(Math.sqrt(x * x + y * y)), k = (1 + .02 * b) * R;
-    const a = (z > 0 ? .3 : .14) + b * .35;   // front half brighter
+    const k = R, b = m.rip && m.rip * shimmer(x0, y0, z0, m.shimT);
+    const a = (z > 0 ? .3 : .14) + b * .5;   // front half brighter
     const sz = Math.max(1, Math.round(dot)), px = (cx0 + x * k) | 0, py = (cy0 + y * k) | 0;
     for (let v = 0; v < sz; v++) {
       const row = (py + v) * bw;
@@ -100,7 +98,7 @@ export function start(sphere, audio, { visible, color }) {
   const cx = sphere.getContext("2d"), ax = audio.getContext("2d");
   createTimer({ onUpdate: self => {
     const dt = Math.min(.05, self.deltaTime / 1000);
-    m.rot += m.spin * dt;   // integrated, so speed changes never jump
+    m.rot += m.spin * dt; m.shimT += dt;   // integrated, so speed changes never jump
     if (visible()) drawSphere(cx);
     drawBars(ax);
   } });
@@ -120,9 +118,7 @@ export function setState(s) {
     ? animate(m, { beat: [-1, 1], duration: s === "speaking" ? 180 : 700, ease: "inOutSine", loop: true, alternate: true })
     : animate(m, { beat: 0, duration: 300 });
   const speaking = s === "speaking" && !reduced;
-  if (speaking && !rippleAnim) rippleAnim = animate(m, { wave: [0, 1.4], duration: 1800, ease: "linear", loop: true });
-  animate(m, { rip: speaking ? 1 : 0, duration: 900, ease: "inOutSine",
-               onComplete: () => { if (state !== "speaking") { rippleAnim?.pause(); rippleAnim = null; } } });
+  animate(m, { rip: speaking ? 1 : 0, duration: 900, ease: "inOutSine" });
 }
 
 export function setMuted(on) { muted = on; if (state === "idle") animate(m, { lvl: on ? 0 : MOTION.idle[2], duration: 400 }); }
