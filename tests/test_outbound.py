@@ -86,3 +86,34 @@ async def test_place_call_passes_the_purpose_as_context(cfg, conn, setup):
     payload = setup[0][2]
     assert payload["assistantId"] == "out1"
     assert payload["assistantOverrides"]["variableValues"]["purpose"] == "book a table for two at 8"
+
+
+def test_credits_note_counts_calls_left(cfg, monkeypatch):
+    keys = {"twilio_token": "tt", "vapi_key": "vk"}
+    monkeypatch.setattr(outbound, "get_key", lambda n: keys.get(n))
+    cfg.remote = {"twilio_sid": "AC1", "vapi_credit_usd": 10}
+
+    def get(url, headers=None, auth=None):
+        if "Balance" in url:
+            assert auth == ("AC1", "tt")
+            return {"balance": "12.40", "currency": "USD"}
+        if "Calls" in url:
+            return {"calls": [{"price": "-0.40"}, {"price": "-0.80"}, {"price": None}]}
+        assert headers == {"Authorization": "Bearer vk"}
+        return [{"cost": 1.0}, {"costs": [{"cost": 0.5}, {"cost": 0.5}]}]
+    monkeypatch.setattr(outbound, "_get", get)
+    note = outbound.credits_note(cfg)
+    assert note == ("Twilio: USD 12.40 left, about 20 calls · "
+                    "Vapi: USD 8.00 left, about 8 calls")
+
+
+def test_credits_note_says_what_to_set_and_survives_errors(cfg, monkeypatch):
+    monkeypatch.setattr(outbound, "get_key", lambda n: "k")
+    cfg.remote = {"twilio_sid": "AC1"}
+
+    def boom(*a, **k):
+        raise ValueError("api.twilio.com answered 401")
+    monkeypatch.setattr(outbound, "_get", boom)
+    note = outbound.credits_note(cfg)
+    assert "Twilio: couldn't check (api.twilio.com answered 401)" in note
+    assert "vapi_credit_usd" in note

@@ -151,6 +151,8 @@ longitude = 80.04
 # vapi_assistant_id = ""                   # the Vapi assistant that uses JARVIS as its Custom LLM
 # vapi_outbound_assistant_id = ""          # a separate Vapi assistant for calling other people
 # whatsapp_webhook = "https://…/webhook/…" # your n8n workflow that sends WhatsApp messages
+# twilio_sid = "AC…"                      # Twilio Account SID; plus: python -m jarvis keys set twilio_token
+# vapi_credit_usd = 10.0                   # your starting Vapi credit (Vapi has no balance API)
 
 # Hardware (Phase 5). A device is data: JARVIS only sends the commands listed here.
 # confirm = true asks first (anything that moves or powers hardware); stop/off never ask.

@@ -168,7 +168,11 @@ const on = {
   route(m) { $("st").textContent = `thinking (${m.route})`; },
   banner(m) { banner(m.text); },
   actions(m) { $("actlist").replaceChildren(); [...m.actions].reverse().forEach(actRow); },
-  action(m) { actRow(m); },
+  action(m) {
+    actRow(m);
+    const credits = m.tool === "call_me" && m.status === "done" && (m.result || "").split("Credits — ")[1];
+    if (credits) credits.split(" · ").forEach(c => line("note", c));   // JARVIS called: what's left
+  },
   agent(m) { $("st").textContent = `consulting ${m.agent}`; lit.add("research"); drawNet(); },
   tool(m) { $("st").textContent = "running " + m.name; lit.add(NODE[m.module] || "system"); drawNet(); },
   confirm(m) {

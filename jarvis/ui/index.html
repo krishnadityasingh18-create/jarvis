@@ -71,6 +71,9 @@
   .msg.user { color: var(--dim); font-family: var(--mono); font-size: 12px; }
   .msg.user::before { content: "› "; color: var(--mute); }
   .msg.assistant::before { content: "◇ "; color: var(--acc); }
+  .msg.note { font: 400 11px var(--mono); letter-spacing: .06em; color: var(--warn); padding-left: 8px;
+              border-left: 2px solid var(--warn); }
+  .msg.note::before { content: "₹ CREDITS  "; color: var(--mute); }
   .msg.cut::after { content: " …"; color: var(--mute); }
   #transcript:empty::before, #detail:empty::before { color: var(--mute); font-size: 12px; }
   #transcript:empty::before { content: "Nothing said yet in this chat."; }
