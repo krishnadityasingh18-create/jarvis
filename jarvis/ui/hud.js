@@ -15,7 +15,6 @@ const NODE = { notes: "memory", memory: "memory", web: "research", claude: "rese
 
 let ws, state = "off", view = "home", screenText = "", current = null, confirmId = null, confirmTimer = null;
 let muted = false, attached = [], lit = new Set(), litTimer = null;
-const shown = { spent: 0, total: 0, pct: 0 };   // numbers count up to their new values
 
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const enter = (targets, extra = {}) => animate(targets, { opacity: [0, 1], y: [10, 0], duration: D(450), ease: "outExpo", ...extra });
@@ -43,9 +42,6 @@ function banner(text) {
   const close = () => animate(c, { opacity: 0, y: -10, duration: D(300), ease: "inQuad", onComplete: () => c.remove() });
   x.onclick = close; c.append(body, x); $("banners").append(c);
   enter(c, { y: [-14, 0], scale: [.96, 1] }); setTimeout(close, 15000);
-}
-function countTo(key, value, render) {
-  animate(shown, { [key]: value, duration: D(900), ease: "outExpo", onUpdate: () => render(shown[key]) });
 }
 
 // ---------- actions log
@@ -153,21 +149,6 @@ const on = {
     screenText = last ? last.screen : ""; renderDetail();
     $("caption").textContent = last ? last.content : "";
     setRoute(m.route);
-  },
-  usage(m) {
-    const pct = m.cap_inr ? Math.min(100, Math.round(m.spent_inr / m.cap_inr * 100)) : 0;
-    const req = Object.entries(m.requests_today), total = req.reduce((a, [, n]) => a + n, 0);
-    countTo("spent", m.spent_inr, v => { $("spentv").textContent = "₹" + v.toFixed(2).replace(/\.00$/, ""); $("statspent").textContent = $("spentv").textContent; });
-    countTo("pct", pct, v => $("pct").textContent = Math.round(v) + "%");
-    countTo("total", total, v => $("stattotal").textContent = Math.round(v));
-    $("capv").textContent = $("statcap").textContent = "₹" + m.cap_inr;
-    for (const id of ["spendbar", "bigbar"]) {
-      $(id).classList.toggle("warn", pct >= 80);
-      animate($(id).firstElementChild, { width: pct + "%", duration: D(900), ease: "outExpo" });
-    }
-    $("reqs").replaceChildren(...req.map(([p, n]) => {
-      const d = el("div", "req"); d.append(el("span", null, p.replace(/_/g, " ")), el("b", null, n)); return d;
-    }));
   },
   state(m) { setState(m.state); },
   user_text(m) {
