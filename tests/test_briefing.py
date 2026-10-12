@@ -89,3 +89,35 @@ async def test_briefing_instructions_are_outside_the_untrusted_block(cfg, conn, 
     r = await run(make_ctx(cfg, conn), call("daily_briefing"))
     assert "set_plan" not in r                     # data only
     assert "set_plan" in TOOLS["daily_briefing"].description
+
+
+
+REPLY = ("Physics at nine, sir.\n---\n**Morning Briefing**\n- Weather: drizzle\n\n"
+         "**Proposed plan for today**\n- 09:00-09:50 Physics\n- 16:00-18:00 Lab report\n")
+
+
+async def test_briefing_saves_the_proposed_plan_if_the_model_forgot(cfg, conn, sources,
+                                                                    monkeypatch):
+    from jarvis import brain
+    from tests.test_brain import noop_emit, scripted
+    monkeypatch.setattr(brain, "stream_reply", scripted([("route", "fast"), ("text", REPLY)]))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "brief me", "fast", noop_emit, speak)
+    plan = day.today_plan(conn)
+    assert plan.startswith("**Proposed plan for today**") and "16:00-18:00 Lab report" in plan
+    assert "Weather" not in plan
+
+
+async def test_briefing_keeps_the_plan_the_model_saved(cfg, conn, sources, monkeypatch):
+    from jarvis import brain
+    from tests.test_brain import noop_emit, scripted, tc
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), ("text", REPLY), tc("set_plan", text="the model's plan")],
+        [("route", "fast"), ("text", "Saved, sir.")]))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "brief me", "fast", noop_emit, speak)
+    assert day.today_plan(conn) == "the model's plan"

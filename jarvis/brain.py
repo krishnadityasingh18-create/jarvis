@@ -242,6 +242,17 @@ REMOTE_NOTE = ("\n\nYou are talking to the user over {via}, away from the desk. 
 _BRIEFING = re.compile(r"\b(brief me|(morning|daily|today'?s) briefing)\b", re.IGNORECASE)
 
 
+def _proposed_plan(screen: str) -> str:
+    """The plan section of a briefing's on-screen part (from a heading that mentions a
+    plan), or the whole of it when there's no such heading."""
+    lines = screen.strip().splitlines()
+    for i, line in enumerate(lines):
+        heading = line.lstrip().startswith(("#", "**")) or line.rstrip().endswith(":")
+        if "plan" in line.lower() and heading:
+            return "\n".join(lines[i:]).strip()
+    return screen.strip()
+
+
 def wants_briefing(text: str) -> bool:
     return bool(_BRIEFING.search(text))
 
@@ -385,6 +396,11 @@ async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: 
             await emit({"type": "banner", "text": str(e) or type(e).__name__})
             await say(NO_LOCAL if ctx.private else NO_MODEL)
         await out(splitter.flush())
+        if wants_briefing(user_text) and not remote and screen and \
+                not any(a["name"] == "set_plan" for a in ctx.actions):
+            # models often propose a plan but forget to save it: save what they proposed
+            await tools.run(ctx, {"id": "plan_0", "name": "set_plan", "arguments": json.dumps(
+                {"text": _proposed_plan("".join(screen))})})
         sentences.put_nowait(None)
         await speaker_task
         db.add_message(conn, "assistant", " ".join(spoken), "".join(screen), route,
