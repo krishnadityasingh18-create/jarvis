@@ -33,9 +33,6 @@
   html, body { height: 100%; }
   body { margin: 0; overflow: hidden; background: var(--bg); color: var(--text); font: 0.9375rem/1.47 var(--font);
          -webkit-font-smoothing: antialiased; transition: background-color .4s, color .4s; }
-  /* the state colour, faint, behind everything */
-  body::before { content: ""; position: fixed; inset: 0; pointer-events: none;
-                 background: radial-gradient(60% 55% at 50% 42%, color-mix(in srgb, var(--acc) 9%, transparent), transparent 70%); }
   button, input, select { font: inherit; color: inherit; }
   :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -55,8 +52,8 @@
   .icon-btn.on { color: var(--danger); }
 
   /* ---- top bar */
-  .bar { position: fixed; top: 14px; left: 50%; translate: -50% 0; z-index: 5; width: min(760px, calc(100% - 28px));
-         height: 52px; padding: 0 8px 0 18px; border-radius: 26px; display: flex; align-items: center; gap: 10px; }
+  .bar { position: fixed; top: 14px; left: 50%; translate: -50% 0; z-index: 5; width: max-content; max-width: calc(100% - 28px);
+         height: 44px; padding: 0 18px; border-radius: 22px; display: flex; align-items: center; gap: 10px; }
   .who { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
   .who b { font: 600 1rem/1 var(--display); letter-spacing: -.01em; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 25%, transparent); flex: none; }
@@ -64,15 +61,17 @@
 
   /* ---- stage */
   /* the orb takes whatever height is left between the bars (--dock: the input bar's live height) */
-  .stage { position: fixed; top: 76px; left: 0; right: 0; bottom: calc(var(--dock, 74px) + 28px);
+  .stage { position: fixed; top: 76px; left: 0; right: 0; bottom: calc(var(--dock, 74px) + 40px);
            display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; align-items: center; }
   #core { height: 100%; max-height: min(52vh, 72vw); width: auto; max-width: 72vw; min-height: 0; aspect-ratio: 1;
           padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: 50%; }
   #core:active { transform: scale(.985); }
+  #core[aria-disabled="true"] { cursor: default; }
+  #core[aria-disabled="true"]:active { transform: none; }
   #core canvas { width: 100%; height: 100%; display: block; }
   .speech { width: min(680px, calc(100% - 40px)); text-align: center; }
   #asked { margin: 4px 0 6px; min-height: 1.47em; color: var(--text2); font-size: 0.9375rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #caption { margin: 0; font: 600 clamp(20px, 2.5vw, 30px)/1.18 var(--display); letter-spacing: -.02em;
+  #caption { margin: 0; font: 600 clamp(1.25rem, 2.5vw, 1.875rem)/1.18 var(--display); letter-spacing: -.02em;
              display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .chip { margin-top: 12px; height: 32px; padding: 0 14px; border: 0; border-radius: 16px; background: var(--fill); cursor: pointer;
           font-size: 0.8125rem; font-weight: 500; }
@@ -128,6 +127,8 @@
   .sheet { position: fixed; top: 80px; right: 14px; bottom: 18px; z-index: 6; width: min(420px, calc(100% - 28px));
            border-radius: var(--r-lg); display: flex; flex-direction: column; overflow: hidden; will-change: transform, opacity; }
   body.panel-over .sheet { bottom: calc(var(--dock, 56px) + 28px); }   /* never over the input bar */
+  body.panel-over #toasts { z-index: 7; }
+  body.panel-over .toast { background: var(--menu); }   /* over the panel: near-opaque, not glass on glass */
   .sheet header { display: flex; align-items: center; gap: 6px; padding: 10px 10px 10px 12px; }
   .seg { flex: 1; display: flex; padding: 2px; border-radius: 10px; background: var(--fill); }
   .seg button { flex: 1; height: 28px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; font-size: 0.78125rem;
@@ -198,7 +199,7 @@
   /* short windows: keep the reply, drop what you asked, two lines max */
   @media (max-height: 560px) {
     #asked { display: none; }
-    #caption { -webkit-line-clamp: 2; font-size: clamp(17px, 2vw, 24px); }
+    #caption { -webkit-line-clamp: 2; font-size: clamp(1.0625rem, 2vw, 1.5rem); }
     .chip { margin-top: 6px; }
   }
   @media (max-height: 420px) {

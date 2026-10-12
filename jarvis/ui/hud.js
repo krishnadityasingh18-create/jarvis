@@ -31,6 +31,10 @@ function status(text) { $("status").textContent = text; }
 function setState(s) {
   if (s === state) return;
   state = s; core.setState(s);
+  const busy = s !== "idle" && s !== "off";
+  $("core").setAttribute("aria-disabled", !busy);
+  $("core").setAttribute("aria-label", busy ? "Stop" : "Jarvis is " + STATUS[s].toLowerCase());
+  $("core").title = busy ? "Stop" : "";
   const note = !mic.available ? " · mic off" : mic.muted ? " · muted" : "";
   status(STATUS[s] + (s === "idle" || s === "off" ? note : ""));
   clearTimeout(litTimer);
@@ -42,7 +46,13 @@ function setState(s) {
 function renderDetail() {
   $("detail").innerHTML = screenText ? DOMPurify.sanitize(marked.parse(screenText)) : "";
   if (!screenText) $("detail").append(el("p", "empty", "Longer answers, tables and links appear here."));
-  $("more").hidden = !screenText;
+  showMore();
+}
+// the chip under the reply: the details if there are any, else the whole reply if it's cut off
+function showMore() {
+  const c = $("caption"), cut = c.scrollHeight > c.clientHeight + 2;
+  $("more").hidden = !screenText && !cut;
+  $("more").textContent = screenText ? "Show details" : "Read the full reply";
 }
 function bubble(cls, text) {
   const p = el("p", "msg " + cls, text);
@@ -133,6 +143,8 @@ function sheet(open, name) {
     if (s.hidden) { utils.set(s, { x: 40, opacity: 0, scale: .98 }); s.hidden = false; }
     move(s, { x: 0, opacity: 1, scale: 1 });
     selectTab(tab);
+    if (document.activeElement === $("menu") || document.activeElement === $("more"))
+      document.querySelector('.seg [aria-selected="true"]').focus();
   } else {
     move(s, { x: 40, opacity: 0, scale: .98 }, { onComplete: () => { if (!sheetOpen) s.hidden = true; } });
   }
@@ -189,7 +201,8 @@ $("upload").onchange = e => {
 };
 function say(text) {
   if (attached.length) text += "\n\nAttached files:\n" + attached.map(f => "- " + f.path).join("\n");
-  attached = []; renderFiles(); send({ type: "text_input", text });
+  if (!send({ type: "text_input", text })) { toast("Not connected to Jarvis yet. Your message is still in the box."); return false; }
+  attached = []; renderFiles(); return true;
 }
 
 // ---------- the + menu and the model menu (as in Claude's desktop app): each grows out of
@@ -243,6 +256,7 @@ const on = {
     screenText = last ? last.screen : ""; renderDetail();
     $("caption").textContent = last ? last.content : "";
     $("asked").textContent = asked ? asked.content.split("\n")[0] : "";
+    requestAnimationFrame(showMore);   // after layout, so the cut-off check is real
     setRoute(m.route);
   },
   state(m) { setState(m.state); },
@@ -256,7 +270,7 @@ const on = {
   spoken_sentence(m) {
     if (!current) current = bubble("assistant", m.text);
     else current.textContent += " " + m.text;
-    $("caption").textContent = current.textContent;
+    $("caption").textContent = current.textContent; showMore();
   },
   screen_delta(m) { screenText += m.text; renderDetail(); },
   turn_end() { current = null; setState("idle"); },
@@ -303,11 +317,11 @@ function setRoute(r, tell = false) {
   if (tell) send({ type: "set_route", route: r });
 }
 $("newchat").onclick = () => send({ type: "new_chat" });
-$("core").onclick = () => send({ type: "cancel" });
+$("core").onclick = () => { if ($("core").getAttribute("aria-disabled") !== "true") send({ type: "cancel" }); };
 $("mic").onclick = () => send({ type: "mute", on: !mic.muted });
 $("menu").onclick = () => sheet(!sheetOpen);
 $("close").onclick = () => { sheet(false); $("menu").focus(); };
-$("more").onclick = () => sheet(true, "detail");
+$("more").onclick = () => sheet(true, screenText ? "detail" : "conv");
 const tabs = [...document.querySelectorAll(".seg button")];
 tabs.forEach((b, i) => {
   b.onclick = () => selectTab(b.dataset.tab);
@@ -320,7 +334,7 @@ tabs.forEach((b, i) => {
   });
 });
 $("text").addEventListener("keydown", e => {
-  if (e.key === "Enter" && e.target.value.trim()) { say(e.target.value); e.target.value = ""; }
+  if (e.key === "Enter" && e.target.value.trim() && say(e.target.value)) e.target.value = "";
 });
 $("sheet").addEventListener("keydown", e => { if (e.key === "Escape") { sheet(false); $("menu").focus(); } });
 $("confirm").querySelector(".yes").onclick = () => answer(true);
@@ -339,7 +353,7 @@ new ResizeObserver(([e]) => document.documentElement.style.setProperty("--dock",
   .observe(document.querySelector(".dock"));
 // a narrow window gets the short hint, so it never shows cut off
 const hint = () => { $("text").placeholder = innerWidth < 520 ? "Ask Jarvis…" : "Ask Jarvis, or say “Hey Jarvis”"; };
-hint(); addEventListener("resize", () => { hint(); setRoute(route); });
+hint(); addEventListener("resize", () => { hint(); setRoute(route); showMore(); });
 
 // ---------- boot
 core.start($("sphere"), {
