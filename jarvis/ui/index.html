@@ -9,7 +9,7 @@
   :root {
     color-scheme: light dark;
     --bg: #F5F5F7; --text: #1D1D1F; --text2: #6E6E73; --sep: rgba(0, 0, 0, .08);
-    --glass: rgba(255, 255, 255, .62); --glass-strong: rgba(255, 255, 255, .8); --edge: rgba(255, 255, 255, .75);
+    --glass: rgba(255, 255, 255, .62); --glass-strong: rgba(255, 255, 255, .8); --menu: rgba(250, 250, 252, .94); --edge: rgba(255, 255, 255, .75);
     --fill: rgba(0, 0, 0, .05); --fill-hover: rgba(0, 0, 0, .08);
     --shadow: 0 12px 40px rgba(0, 0, 0, .10), 0 1px 3px rgba(0, 0, 0, .06);
     --danger: #E5484D; --ok: #30A46C; --warn: #C27C0E; --blue: #0A84FF;
@@ -22,7 +22,7 @@
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #000; --text: #F5F5F7; --text2: #98989D; --sep: rgba(255, 255, 255, .1);
-      --glass: rgba(28, 28, 30, .55); --glass-strong: rgba(36, 36, 38, .78); --edge: rgba(255, 255, 255, .09);
+      --glass: rgba(28, 28, 30, .55); --glass-strong: rgba(36, 36, 38, .78); --menu: rgba(40, 40, 43, .94); --edge: rgba(255, 255, 255, .09);
       --fill: rgba(255, 255, 255, .07); --fill-hover: rgba(255, 255, 255, .12);
       --shadow: 0 12px 40px rgba(0, 0, 0, .55), 0 1px 3px rgba(0, 0, 0, .4);
       --danger: #FF6369; --ok: #3DD68C; --warn: #FFB224; --acc: #CFE3FF;
@@ -61,8 +61,6 @@
   .who b { font: 600 1rem/1 var(--display); letter-spacing: -.01em; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 25%, transparent); flex: none; }
   #status { color: var(--text2); font-size: 0.875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pill { height: 32px; border: 0; border-radius: 16px; padding: 0 12px; background: var(--fill); cursor: pointer; font-size: 0.8125rem; font-weight: 500; }
-  .pill:hover { background: var(--fill-hover); }
 
   /* ---- stage */
   /* the orb takes whatever height is left between the bars (--dock: the input bar's live height) */
@@ -86,9 +84,22 @@
   .input input[type=text] { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: transparent; padding: 0 8px; font-size: 1rem; }
   .input input::placeholder { color: var(--text2); }
   /* the + menu: anchored to its button, grows up and out of it */
-  .plus { position: relative; }
+  .pop { position: relative; flex: none; }
+  .model-btn { height: 32px; padding: 0 6px 0 12px; border: 0; border-radius: 16px; background: transparent; cursor: pointer;
+               display: inline-flex; align-items: center; gap: 2px; font-size: .8125rem; font-weight: 500; color: var(--text2);
+               transition: transform 100ms ease-out, background-color 150ms; }
+  .model-btn:hover, .model-btn[aria-expanded="true"] { background: var(--fill-hover); color: var(--text); }
+  .model-btn:active { transform: scale(.97); }
+  .model-btn .ic { width: 16px; height: 16px; }
+  .mi.two { height: auto; padding: 8px 10px; }
+  .mi.two span { display: flex; flex-direction: column; gap: 1px; }
+  .mi.two b { font-weight: 500; }
+  .mi.two small { font-size: .75rem; color: var(--text2); }
+  .mi .tick { color: var(--blue); opacity: 0; }
+  .mi[aria-checked="true"] .tick { opacity: 1; }
   .menu { position: absolute; bottom: calc(100% + 12px); right: -8px; z-index: 6; width: 15.5rem; padding: 6px;
           border-radius: var(--r-md); transform-origin: calc(100% - 28px) 100%; }
+  .menu.glass { background: var(--menu); }   /* menus sit over text: near-opaque so it stays legible */
   .mi { width: 100%; height: 2.375rem; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; cursor: pointer;
         display: flex; align-items: center; gap: 10px; text-align: left; font-size: .875rem; transition: background-color 100ms; }
   .mi:hover, .mi:focus-visible { background: var(--fill-hover); outline: none; }
@@ -195,6 +206,13 @@
     .sheet { top: 60px; bottom: 10px; }
     #toasts { top: 60px; }
   }
+  @media (max-width: 520px) {   /* narrow: menus open as a full-width sheet above the input bar */
+    .menu { position: fixed; left: 12px; right: 12px; width: auto; bottom: calc(var(--dock, 56px) + 26px); transform-origin: 50% 100%; }
+  }
+  @media (max-width: 420px) {   /* the model button keeps its chevron, loses its padding */
+    .model-btn { padding: 0 2px 0 8px; }
+    .input { padding: 0 4px; gap: 0; }
+  }
   @media (max-width: 640px) {
     .sheet { left: 14px; width: auto; }
   }
@@ -210,10 +228,6 @@
 <body>
 <header class="bar glass">
   <div class="who"><span class="dot" aria-hidden="true"></span><b>Jarvis</b><span id="status" aria-live="polite">Connecting…</span></div>
-  <label class="sr" for="route">Model</label>
-  <select id="route" class="pill">
-    <option value="fast">Fast</option><option value="reasoning">Reasoning</option><option value="local">Local</option>
-  </select>
 </header>
 
 <div id="toasts" role="status"></div>
@@ -236,7 +250,24 @@
     </button>
     <label class="sr" for="text">Message</label>
     <input id="text" type="text" autocomplete="off" placeholder="Ask Jarvis, or say “Hey Jarvis”">
-    <div class="plus">
+    <div class="pop">
+      <button class="model-btn" id="modelbtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="modelmenu"
+              aria-label="Model: Fast" title="Choose the model">
+        <span id="modelname">Fast</span>
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg></button>
+      <div class="menu glass strong" id="modelmenu" role="menu" aria-label="Model" hidden>
+        <button class="mi two" type="button" role="menuitemradio" data-r="fast" aria-checked="false">
+          <span><b>Fast</b><small>Quick everyday answers</small></span>
+          <svg class="ic tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+        <button class="mi two" type="button" role="menuitemradio" data-r="reasoning" aria-checked="false">
+          <span><b>Reasoning</b><small>Thinks longer for harder questions</small></span>
+          <svg class="ic tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+        <button class="mi two" type="button" role="menuitemradio" data-r="local" aria-checked="false">
+          <span><b>Local</b><small>Private, runs on this laptop</small></span>
+          <svg class="ic tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+      </div>
+    </div>
+    <div class="pop">
       <button class="icon-btn" id="plus" type="button" aria-label="Add files and more" title="Add files and more"
               aria-haspopup="menu" aria-expanded="false" aria-controls="plusmenu">
         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>

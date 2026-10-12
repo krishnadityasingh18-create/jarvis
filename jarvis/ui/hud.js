@@ -188,34 +188,41 @@ function say(text) {
   attached = []; renderFiles(); send({ type: "text_input", text });
 }
 
-// ---------- the + menu (as in Claude's desktop app): grows out of its button
-let menuOpen = false;
-const items = () => [...$("plusmenu").querySelectorAll(".mi")];
-function menu(open) {
-  if (open === menuOpen) return;
-  menuOpen = open; $("plus").setAttribute("aria-expanded", open);
-  const mn = $("plusmenu");
-  if (open) {
-    if (mn.hidden) { utils.set(mn, { opacity: 0, scale: .92, y: 6 }); mn.hidden = false; }
-    move(mn, { opacity: 1, scale: 1, y: 0 });
-    items()[0].focus();
-  } else {
-    move(mn, { opacity: 0, scale: .92, y: 6 }, { onComplete: () => { if (!menuOpen) mn.hidden = true; } });
-  }
+// ---------- the + menu and the model menu (as in Claude's desktop app): each grows out of
+// its button; arrows move, Escape or a click elsewhere closes, focus starts on the useful item
+function popover(btn, mn) {
+  const p = { open: false, root: btn.parentElement };
+  const items = () => [...mn.querySelectorAll(".mi")];
+  p.set = open => {
+    if (open === p.open) return;
+    p.open = open; btn.setAttribute("aria-expanded", open);
+    if (open) {
+      pops.forEach(o => o !== p && o.set(false));   // one menu at a time
+      if (mn.hidden) { utils.set(mn, { opacity: 0, scale: .92, y: 6 }); mn.hidden = false; }
+      move(mn, { opacity: 1, scale: 1, y: 0 });
+      (mn.querySelector('[aria-checked="true"][role=menuitemradio]') || items()[0]).focus();
+    } else {
+      move(mn, { opacity: 0, scale: .92, y: 6 }, { onComplete: () => { if (!p.open) mn.hidden = true; } });
+    }
+  };
+  btn.onclick = () => p.set(!p.open);
+  mn.addEventListener("keydown", e => {
+    const list = items(), i = list.indexOf(document.activeElement);
+    const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+    if (step) { e.preventDefault(); list[(i + step + list.length) % list.length].focus(); }
+    else if (e.key === "Home" || e.key === "End") { e.preventDefault(); list[e.key === "Home" ? 0 : list.length - 1].focus(); }
+    else if (e.key === "Escape") { p.set(false); btn.focus(); }
+    else if (e.key === "Tab") p.set(false);
+  });
+  return p;
 }
-$("plus").onclick = () => menu(!menuOpen);
-$("plusmenu").addEventListener("keydown", e => {
-  const list = items(), i = list.indexOf(document.activeElement);
-  const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
-  if (step) { e.preventDefault(); list[(i + step + list.length) % list.length].focus(); }
-  else if (e.key === "Home" || e.key === "End") { e.preventDefault(); list[e.key === "Home" ? 0 : list.length - 1].focus(); }
-  else if (e.key === "Escape") { menu(false); $("plus").focus(); }
-  else if (e.key === "Tab") menu(false);
-});
-addEventListener("pointerdown", e => { if (menuOpen && !e.target.closest?.(".plus")) menu(false); });
+const plus = popover($("plus"), $("plusmenu")), models = popover($("modelbtn"), $("modelmenu")), pops = [plus, models];
+addEventListener("pointerdown", e => pops.forEach(p => { if (p.open && !p.root.contains(e.target)) p.set(false); }));
+const menu = open => plus.set(open);
+document.querySelectorAll("#modelmenu .mi").forEach(b => b.onclick = () => { models.set(false); setRoute(b.dataset.r, true); });
 $("m-files").onclick = () => { menu(false); $("upload").click(); };
 $("m-shot").onclick = () => { menu(false); status("Taking a screenshot…"); send({ type: "screenshot" }); };
-// the switch stays in the menu; it just flips the model like the top bar does
+// the switch stays in the menu; it just flips the model like the model menu does
 $("m-think").onclick = () => setRoute($("m-think").getAttribute("aria-checked") === "true" ? "fast" : "reasoning", true);
 
 // ---------- events from the server
@@ -282,11 +289,15 @@ function connect() {
 const send = m => ws?.readyState === 1 && ws.send(JSON.stringify(m));
 
 // ---------- controls
+const ROUTE_NAME = { fast: "Fast", reasoning: "Reasoning", local: "Local" }, ROUTE_SHORT = { reasoning: "Think" };
+let route = "fast";
 function setRoute(r, tell = false) {
-  $("route").value = r; $("m-think").setAttribute("aria-checked", r === "reasoning");
+  route = r;
+  $("modelname").textContent = (innerWidth < 520 && ROUTE_SHORT[r]) || ROUTE_NAME[r] || r; $("modelbtn").setAttribute("aria-label", "Model: " + (ROUTE_NAME[r] || r));
+  document.querySelectorAll("#modelmenu .mi").forEach(b => b.setAttribute("aria-checked", b.dataset.r === r));
+  $("m-think").setAttribute("aria-checked", r === "reasoning");
   if (tell) send({ type: "set_route", route: r });
 }
-$("route").onchange = e => setRoute(e.target.value, true);
 $("newchat").onclick = () => send({ type: "new_chat" });
 $("core").onclick = () => send({ type: "cancel" });
 $("mic").onclick = () => send({ type: "mute", on: !mic.muted });
@@ -324,7 +335,7 @@ new ResizeObserver(([e]) => document.documentElement.style.setProperty("--dock",
   .observe(document.querySelector(".dock"));
 // a narrow window gets the short hint, so it never shows cut off
 const hint = () => { $("text").placeholder = innerWidth < 520 ? "Ask Jarvis…" : "Ask Jarvis, or say “Hey Jarvis”"; };
-hint(); addEventListener("resize", hint);
+hint(); addEventListener("resize", () => { hint(); setRoute(route); });
 
 // ---------- boot
 core.start($("sphere"), {
