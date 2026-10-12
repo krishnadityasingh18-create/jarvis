@@ -3,10 +3,10 @@
 // renderer reads (spin, pulse, colour, bar heights) is tweened by animate().
 import { animate, createTimer, utils } from "/ui/anime.esm.min.js";
 
-export const COLORS = { idle: "#5CE1FF", listening: "#D8E06A", thinking: "#FF6B5E", speaking: "#E07BFF",
+export const COLORS = { idle: "#CFE3FF", listening: "#D8E06A", thinking: "#FF6B5E", speaking: "#E07BFF",
                         confirming: "#7CF5C4", off: "#7C93A6" };
 // per state: spin (rad/s), pulse depth, audio level, thinking jitter
-const MOTION = { idle: [.10, 0, .06, 0], listening: [.22, .5, .5, 0], thinking: [.65, .25, .2, 1],
+const MOTION = { idle: [.10, 0, .06, 0], listening: [.22, .5, .5, 0], thinking: [.95, 0, .2, 0],
                  speaking: [.12, 0, .85, 0], confirming: [.2, .5, .5, 0], off: [.03, 0, 0, 0] };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -31,8 +31,11 @@ for (let i = 0; i < N; i++) {   // ponytail: O(n²) once at load, ~0.6 M distanc
 const m = { spin: .1, amp: 0, lvl: 0, jit: 0, beat: 0, scale: .6, rot: 0, r: 92, g: 225, b: 255,
             wave: 0, rip: 0 };   // speaking: two wavefronts (wave, wave - .7) travel out from the centre
 const bars = Array.from({ length: 40 }, () => ({ v: 0 }));
-const RIP_W = .09;   // wavefront thickness, as a fraction of the radius
-const ripple = d => m.rip && Math.max(Math.exp(-(((d - m.wave) / RIP_W) ** 2)), Math.exp(-(((d - m.wave + .7) / RIP_W) ** 2))) * m.rip;
+const RIP_W = .16;   // wavefront thickness, as a fraction of the radius
+// one wave at `wave`, the other half a cycle behind; each swells in from the centre and has
+// left the sphere (front > 1.2) before the loop wraps, so nothing ever pops in or out
+const front = (d, f) => Math.min(1, f / .35) * Math.exp(-(((d - f) / RIP_W) ** 2));
+const ripple = d => m.rip && Math.max(front(d, m.wave), front(d, (m.wave + .7) % 1.4)) * m.rip;
 let rippleAnim = null, beatAnim = null, onColor = () => {}, muted = false, state = "off";
 
 function fit(c) {
@@ -51,7 +54,7 @@ function drawSphere(cx, t) {
   cx.fillStyle = g; cx.fillRect(0, 0, w, h);
   const cr = Math.cos(m.rot), sr = Math.sin(m.rot), ct = Math.cos(.35), st = Math.sin(.35), Q = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) {
-    const p = P[i], j = (1 + m.jit * .05 * Math.sin(t * 6 + p.ph)) * (1 + .07 * ripple(p.d));
+    const p = P[i], j = (1 + m.jit * .05 * Math.sin(t * 6 + p.ph)) * (1 + .18 * ripple(p.d));
     const x = (p.x * cr + p.z * sr) * j, z0 = (-p.x * sr + p.z * cr) * j, y = p.y * j;
     const y2 = y * ct - z0 * st, z = y * st + z0 * ct, f = 2.8 / (2.8 + z);
     Q[i * 3] = w / 2 + x * f * R * pulse; Q[i * 3 + 1] = h / 2 + y2 * f * R * pulse; Q[i * 3 + 2] = z;
@@ -61,8 +64,8 @@ function drawSphere(cx, t) {
   cx.stroke();
   for (let i = 0; i < N; i++) {
     const b = ripple(P[i].d);
-    cx.globalAlpha = Math.min(1, Math.max(.15, .9 - (Q[i * 3 + 2] + 1) * .35) * (.75 + .25 * Math.sin(t * 2 + P[i].ph)) + b * .7);
-    cx.beginPath(); cx.arc(Q[i * 3], Q[i * 3 + 1], P[i].s * dpr * (1 + b * 1.3), 0, 6.283); cx.fill();
+    cx.globalAlpha = Math.min(1, Math.max(.15, .9 - (Q[i * 3 + 2] + 1) * .35) * (.75 + .25 * Math.sin(t * 2 + P[i].ph)) + b * .8);
+    cx.beginPath(); cx.arc(Q[i * 3], Q[i * 3 + 1], P[i].s * dpr * (1 + b * 2), 0, 6.283); cx.fill();
   }
   cx.globalAlpha = 1; cx.globalCompositeOperation = "source-over";
 }
@@ -93,14 +96,14 @@ export function setState(s) {
   state = s;
   const [spin, amp, level, jit] = MOTION[s] || MOTION.idle, lvl = muted && s === "idle" ? 0 : level, [r, g, b] = hex(COLORS[s] || COLORS.idle);
   animate(m, { spin: reduced ? spin * .2 : spin, amp: reduced ? 0 : amp, lvl, jit: reduced ? 0 : jit, r, g, b,
-               duration: 900, ease: "outQuad", onUpdate: () => onColor(`rgb(${m.r | 0}, ${m.g | 0}, ${m.b | 0})`) });
+               duration: 1400, ease: "inOutSine", onUpdate: () => onColor(`rgb(${m.r | 0}, ${m.g | 0}, ${m.b | 0})`) });
   beatAnim?.pause();
   beatAnim = amp && !reduced
     ? animate(m, { beat: [-1, 1], duration: s === "speaking" ? 180 : 700, ease: "inOutSine", loop: true, alternate: true })
     : animate(m, { beat: 0, duration: 300 });
   const speaking = s === "speaking" && !reduced;
-  if (speaking && !rippleAnim) rippleAnim = animate(m, { wave: [0, 1.4], duration: 1400, ease: "linear", loop: true });
-  animate(m, { rip: speaking ? 1 : 0, duration: 500, ease: "outQuad",
+  if (speaking && !rippleAnim) rippleAnim = animate(m, { wave: [0, 1.4], duration: 1800, ease: "linear", loop: true });
+  animate(m, { rip: speaking ? 1 : 0, duration: 900, ease: "inOutSine",
                onComplete: () => { if (state !== "speaking") { rippleAnim?.pause(); rippleAnim = null; } } });
 }
 
