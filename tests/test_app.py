@@ -142,7 +142,7 @@ def test_history_sent_on_connect(cfg, conn):
 def test_index_served(cfg, conn):
     with TestClient(create_app(cfg, conn)) as client:
         r = client.get("/")
-    assert r.status_code == 200 and "JARVIS" in r.text
+    assert r.status_code == 200 and "Jarvis" in r.text
 
 
 def test_typing_while_listening_runs_typed_turn(cfg, conn, monkeypatch):
