@@ -65,7 +65,7 @@ function drawSphere(cx) {
     const x0 = P[i * 3], y0 = P[i * 3 + 1], z0 = P[i * 3 + 2];
     const x = x0 * cr + z0 * sr, z1 = -x0 * sr + z0 * cr, y = y0 * ct - z1 * st, z = y0 * st + z1 * ct;
     const k = R, b = m.rip && m.rip * shimmer(x0, y0, z0, m.shimT);
-    const a = (z > 0 ? .3 : .14) + b * .5;   // front half brighter
+    const a = (z > 0 ? .3 : .14) + b * 1.1;   // front half brighter
     const sz = Math.max(1, Math.round(dot)), px = (cx0 + x * k) | 0, py = (cy0 + y * k) | 0;
     for (let v = 0; v < sz; v++) {
       const row = (py + v) * bw;
