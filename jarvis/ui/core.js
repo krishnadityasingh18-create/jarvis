@@ -1,35 +1,32 @@
-// The particle core (the sphere from the reference video) and the audio meter.
-// anime.js owns time: one createTimer is the frame loop, and every value the
-// renderer reads (spin, pulse, colour, bar heights) is tweened by animate().
+// The core: a dot-lattice shell whose surface folds and flows (the user's reference
+// orb), and the audio meter. anime.js owns time: one createTimer is the frame loop,
+// and every value the renderer reads (spin, flow, pulse, colour, ripples, bars) is
+// tweened by animate().
 import { animate, createTimer, utils } from "/ui/anime.esm.min.js";
 
 export const COLORS = { idle: "#CFE3FF", listening: "#D8E06A", thinking: "#FF6B5E", speaking: "#E07BFF",
                         confirming: "#7CF5C4", off: "#7C93A6" };
-// per state: spin (rad/s), pulse depth, audio level, thinking jitter
-const MOTION = { idle: [.10, 0, .06, 0], listening: [.22, .5, .5, 0], thinking: [.95, 0, .2, 0],
-                 speaking: [.12, 0, .85, 0], confirming: [.2, .5, .5, 0], off: [.03, 0, 0, 0] };
+// per state: spin (rad/s), pulse depth, audio level, surface flow speed
+const MOTION = { idle: [.10, 0, .06, .35], listening: [.22, .5, .5, .6], thinking: [.95, 0, .2, .9],
+                 speaking: [.12, 0, .85, .6], confirming: [.2, .5, .5, .5], off: [.03, 0, 0, .1] };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 
-const N = 1100, P = [], L = [];
+// an even dot lattice over the unit sphere (Fibonacci spiral): reads as the fine grid
+const N = 24000, P = new Float32Array(N * 3), GA = Math.PI * (3 - Math.sqrt(5));
 for (let i = 0; i < N; i++) {
-  let x, y, z, d;
-  do { x = utils.random(-1, 1, 4); y = utils.random(-1, 1, 4); z = utils.random(-1, 1, 4); d = x * x + y * y + z * z; }
-  while (d > 1 || d < 1e-4);
-  const r = Math.pow(Math.random(), 0.5) / Math.sqrt(d);
-  P.push({ x: x * r, y: y * r, z: z * r, d: Math.min(1, r * Math.sqrt(d)), s: Math.random() < .1 ? 2.1 : utils.random(.5, 1.6, 2), ph: utils.random(0, 6.28, 2) });
+  const y = 1 - 2 * (i + .5) / N, r = Math.sqrt(1 - y * y), a = i * GA;
+  P[i * 3] = Math.cos(a) * r; P[i * 3 + 1] = y; P[i * 3 + 2] = Math.sin(a) * r;
 }
-for (let i = 0; i < N; i++) {   // ponytail: O(n²) once at load, ~0.6 M distance checks
-  let k = 0;
-  for (let j = i + 1; j < N && k < 2; j++) {
-    const a = P[i], b = P[j], dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
-    if (dx * dx + dy * dy + dz * dz < .02) { L.push(i, j); k++; }
-  }
-}
+// the folds: a few waves crossing the surface, smooth in space and time (t = m.flowT)
+// big slow swells, then finer lumps that make the bumpy outline and the wrinkle ridges
+const fold = (x, y, z, t) => .07 * Math.sin(3.1 * x + 1.7 * y + t) * Math.sin(2.6 * z - 1.9 * x - .8 * t)
+  + .04 * Math.sin(5.3 * y + 2.2 * z - 1.3 * t) + .035 * Math.sin(7.1 * x - 4.4 * z + 1.7 * t) * Math.sin(6.3 * y + .9 * t)
+  + .022 * Math.sin(10.7 * x + 9.1 * y - 2.1 * t) * Math.sin(11.3 * z - 8.2 * y + 1.4 * t);
 
-// everything the renderer reads; only anime.js writes it
-const m = { spin: .1, amp: 0, lvl: 0, jit: 0, beat: 0, scale: .6, rot: 0, r: 92, g: 225, b: 255,
-            wave: 0, rip: 0 };   // speaking: two wavefronts (wave, wave - .7) travel out from the centre
+// everything the renderer reads; only anime.js (and the clock) writes it
+const m = { spin: .1, amp: 0, lvl: 0, flow: .35, flowT: 0, beat: 0, scale: .6, rot: 0, r: 207, g: 227, b: 255,
+            wave: 0, rip: 0 };   // speaking: two wavefronts travel out from the middle of the disc
 const bars = Array.from({ length: 40 }, () => ({ v: 0 }));
 const RIP_W = .16;   // wavefront thickness, as a fraction of the radius
 // one wave at `wave`, the other half a cycle behind; each swells in from the centre and has
@@ -45,29 +42,55 @@ function fit(c) {
   return [w, h, dpr];
 }
 
-function drawSphere(cx, t) {
-  const [w, h, dpr] = fit(cx.canvas), R = Math.min(w, h) * .42 * m.scale;
-  const pulse = 1 + m.amp * .045 * m.beat, rgb = `${m.r | 0},${m.g | 0},${m.b | 0}`;
-  cx.clearRect(0, 0, w, h); cx.globalCompositeOperation = "lighter";
-  const g = cx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, R * 1.1);
-  g.addColorStop(0, `rgba(${rgb},.3)`); g.addColorStop(1, "rgba(0,0,0,0)");
+// The dots are splatted into a light buffer (adding up where they overlap), then tone-mapped:
+// dim → the state colour, bright → white. Overlap is what lights the rim and fold ridges.
+// ponytail: CPU pixel buffer, ~3 ms a frame at 24k dots; WebGL points if it ever needs more
+let acc = null, img = null, off = null;
+function drawSphere(cx) {
+  const [w, h, dpr] = fit(cx.canvas), R = Math.min(w, h) * .40 * m.scale * (1 + m.amp * .04 * m.beat);
+  const ox = w / 2, oy = h / 2, t = m.flowT, col = [m.r, m.g, m.b];
+  cx.clearRect(0, 0, w, h);
+  // the soft tinted glow inside the shell
+  const g = cx.createRadialGradient(ox, oy, 0, ox, oy, R * 1.05);
+  g.addColorStop(0, `rgba(${col.map(v => v | 0)},.34)`); g.addColorStop(.75, `rgba(${col.map(v => v | 0)},.14)`);
+  g.addColorStop(1, "rgba(0,0,0,0)");
   cx.fillStyle = g; cx.fillRect(0, 0, w, h);
-  const cr = Math.cos(m.rot), sr = Math.sin(m.rot), ct = Math.cos(.35), st = Math.sin(.35), Q = new Float32Array(N * 3);
+
+  // the orb's box: everything is drawn inside it
+  const half = Math.ceil(R * 1.45), bx = Math.max(0, (ox - half) | 0), by = Math.max(0, (oy - half) | 0);
+  const bw = Math.min(w - bx, half * 2), bh = Math.min(h - by, half * 2);
+  if (bw <= 0 || bh <= 0) return;
+  if (!img || img.width !== bw || img.height !== bh) {
+    off = document.createElement("canvas"); off.width = bw; off.height = bh;
+    img = off.getContext("2d").createImageData(bw, bh); acc = new Float32Array(bw * bh);
+  } else acc.fill(0);
+
+  const cr = Math.cos(m.rot), sr = Math.sin(m.rot), ct = Math.cos(.35), st = Math.sin(.35);
+  const cx0 = ox - bx, cy0 = oy - by, dot = 1.25 * dpr;
   for (let i = 0; i < N; i++) {
-    const p = P[i], j = (1 + m.jit * .05 * Math.sin(t * 6 + p.ph)) * (1 + .18 * ripple(p.d));
-    const x = (p.x * cr + p.z * sr) * j, z0 = (-p.x * sr + p.z * cr) * j, y = p.y * j;
-    const y2 = y * ct - z0 * st, z = y * st + z0 * ct, f = 2.8 / (2.8 + z);
-    Q[i * 3] = w / 2 + x * f * R * pulse; Q[i * 3 + 1] = h / 2 + y2 * f * R * pulse; Q[i * 3 + 2] = z;
+    const x0 = P[i * 3], y0 = P[i * 3 + 1], z0 = P[i * 3 + 2];
+    const x = x0 * cr + z0 * sr, z1 = -x0 * sr + z0 * cr, y = y0 * ct - z1 * st, z = y0 * st + z1 * ct;
+    const f = fold(x0, y0, z0, t), b = ripple(Math.sqrt(x * x + y * y)), k = (1 + f) * (1 + .12 * b) * R;
+    // front half brighter, fold crests lit as ridges
+    const a = (z > 0 ? .3 : .14) + Math.max(0, f) * 9 + b * .9;
+    const sz = Math.max(1, Math.round(dot * (1 + b * .8))), px = (cx0 + x * k) | 0, py = (cy0 + y * k) | 0;
+    for (let v = 0; v < sz; v++) {
+      const row = (py + v) * bw;
+      if (py + v < 0 || py + v >= bh) continue;
+      for (let u = 0; u < sz; u++) if (px + u >= 0 && px + u < bw) acc[row + px + u] += a;
+    }
   }
-  cx.strokeStyle = cx.fillStyle = `rgb(${rgb})`; cx.globalAlpha = .13; cx.lineWidth = dpr; cx.beginPath();
-  for (let i = 0; i < L.length; i += 2) { cx.moveTo(Q[L[i] * 3], Q[L[i] * 3 + 1]); cx.lineTo(Q[L[i + 1] * 3], Q[L[i + 1] * 3 + 1]); }
-  cx.stroke();
-  for (let i = 0; i < N; i++) {
-    const b = ripple(P[i].d);
-    cx.globalAlpha = Math.min(1, Math.max(.15, .9 - (Q[i * 3 + 2] + 1) * .35) * (.75 + .25 * Math.sin(t * 2 + P[i].ph)) + b * .8);
-    cx.beginPath(); cx.arc(Q[i * 3], Q[i * 3 + 1], P[i].s * dpr * (1 + b * 2), 0, 6.283); cx.fill();
+  // tone map: light 0..∞ → 0..1; colour runs from the (white-washed) state colour to white
+  const d = img.data, tint = col.map(v => v + (255 - v) * .35);
+  for (let i = 0, n = bw * bh; i < n; i++) {
+    const l = acc[i];
+    if (l === 0) { d[i * 4 + 3] = 0; continue; }
+    const v = 1 - Math.exp(-l * 2.4), wv = v * v;
+    d[i * 4] = tint[0] + (255 - tint[0]) * wv; d[i * 4 + 1] = tint[1] + (255 - tint[1]) * wv;
+    d[i * 4 + 2] = tint[2] + (255 - tint[2]) * wv; d[i * 4 + 3] = v * 255;
   }
-  cx.globalAlpha = 1; cx.globalCompositeOperation = "source-over";
+  off.getContext("2d").putImageData(img, 0, 0);
+  cx.globalCompositeOperation = "lighter"; cx.drawImage(off, bx, by); cx.globalCompositeOperation = "source-over";
 }
 
 function drawBars(ax) {
@@ -81,9 +104,9 @@ export function start(sphere, audio, { visible, color }) {
   onColor = color;
   const cx = sphere.getContext("2d"), ax = audio.getContext("2d");
   createTimer({ onUpdate: self => {
-    const t = self.currentTime / 1000;
-    m.rot += m.spin * Math.min(.05, self.deltaTime / 1000);
-    if (visible()) drawSphere(cx, t);
+    const dt = Math.min(.05, self.deltaTime / 1000);
+    m.rot += m.spin * dt; m.flowT += m.flow * dt;   // integrated, so speed changes never jump
+    if (visible()) drawSphere(cx);
     drawBars(ax);
   } });
   // each bar wanders to a new random height, re-rolled every loop
@@ -94,8 +117,8 @@ export function start(sphere, audio, { visible, color }) {
 
 export function setState(s) {
   state = s;
-  const [spin, amp, level, jit] = MOTION[s] || MOTION.idle, lvl = muted && s === "idle" ? 0 : level, [r, g, b] = hex(COLORS[s] || COLORS.idle);
-  animate(m, { spin: reduced ? spin * .2 : spin, amp: reduced ? 0 : amp, lvl, jit: reduced ? 0 : jit, r, g, b,
+  const [spin, amp, level, flow] = MOTION[s] || MOTION.idle, lvl = muted && s === "idle" ? 0 : level, [r, g, b] = hex(COLORS[s] || COLORS.idle);
+  animate(m, { spin: reduced ? spin * .2 : spin, amp: reduced ? 0 : amp, lvl, flow: reduced ? flow * .2 : flow, r, g, b,
                duration: 1400, ease: "inOutSine", onUpdate: () => onColor(`rgb(${m.r | 0}, ${m.g | 0}, ${m.b | 0})`) });
   beatAnim?.pause();
   beatAnim = amp && !reduced
