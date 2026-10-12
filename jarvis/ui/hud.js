@@ -77,15 +77,21 @@ function actRow(a) {
 }
 
 // ---------- confirm: a modal question, so dim to focus
+let returnFocus = null;
 function openConfirm(text) {
   $("cq").textContent = text;
+  if ($("confirm").hidden) {   // a dialog still closing is caught mid-flight instead
+    utils.set($("scrim"), { opacity: 0 }); utils.set($("confirm"), { opacity: 0, scale: .94 });
+    returnFocus = document.activeElement;
+  }
   $("scrim").hidden = $("confirm").hidden = false;
-  move($("scrim"), { opacity: [0, 1] });
-  move($("confirm"), { opacity: [0, 1], scale: [.94, 1] });
+  move($("scrim"), { opacity: 1 });
+  move($("confirm"), { opacity: 1, scale: 1 });
   $("confirm").querySelector(".no").focus();   // the safe answer is the default
 }
 function closeConfirm() {
   confirmId = null;
+  if ($("confirm").contains(document.activeElement)) returnFocus?.focus?.();
   move($("scrim"), { opacity: 0 }, { onComplete: () => { if (!confirmId) $("scrim").hidden = true; } });
   move($("confirm"), { opacity: 0, scale: .94 }, { onComplete: () => { if (!confirmId) $("confirm").hidden = true; } });
 }
@@ -94,7 +100,9 @@ function answer(ok) { if (confirmId) send({ type: "confirm_reply", id: confirmId
 // ---------- side panel (non-blocking: no scrim, the stage stays live)
 function selectTab(name) {
   tab = name;
-  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
+  document.querySelectorAll(".seg button").forEach(b => {
+    const on = b.dataset.tab === name; b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1;
+  });
   document.querySelectorAll(".panel").forEach(p => { p.hidden = p.dataset.panel !== name; });
   const panel = document.querySelector(`.panel[data-panel="${name}"]`);
   if (sheetOpen) move(panel, { opacity: [0, 1] });
@@ -102,20 +110,27 @@ function selectTab(name) {
   if (name === "chats") move("#chatlist li", { opacity: [0, 1], y: [6, 0] }, { delay: stagger(30) });
   if (name === "neural") { move(".nd", { scale: [.6, 1], opacity: [0, 1] }, { delay: stagger(30, { from: "center" }) }); drawNet(true); }
 }
+// make room: the stage glides left to centre in what the panel leaves (when there's space),
+// and notifications move off the panel so glass never stacks on glass
+function makeRoom() {
+  const wide = sheetOpen && innerWidth >= 1000, w = $("sheet").offsetWidth || 420;
+  move(".stage, .dock", { x: wide ? -w / 2 - 7 : 0 });
+  move("#toasts", { x: sheetOpen ? -(w + 30) : 0 });
+}
+addEventListener("resize", () => { if (sheetOpen) makeRoom(); });
 function sheet(open, name) {
   if (name) selectTab(name);
   if (open === sheetOpen) return;
   sheetOpen = open; $("menu").setAttribute("aria-expanded", open);
   const s = $("sheet");
   // make room: the stage glides left to centre in what the panel leaves (when there's space)
-  const shift = open && innerWidth >= 1000 ? -(s.offsetWidth || 420) / 2 - 7 : 0;
-  move(".stage, .dock", { x: shift });
+  makeRoom();
   if (open) {
-    if (s.hidden) { utils.set(s, { x: 40, opacity: 0 }); s.hidden = false; }
-    move(s, { x: 0, opacity: 1 });
+    if (s.hidden) { utils.set(s, { x: 40, opacity: 0, scale: .98 }); s.hidden = false; }
+    move(s, { x: 0, opacity: 1, scale: 1 });
     selectTab(tab);
   } else {
-    move(s, { x: 40, opacity: 0 }, { onComplete: () => { if (!sheetOpen) s.hidden = true; } });
+    move(s, { x: 40, opacity: 0, scale: .98 }, { onComplete: () => { if (!sheetOpen) s.hidden = true; } });
   }
 }
 
@@ -244,14 +259,30 @@ $("mic").onclick = () => send({ type: "mute", on: !mic.muted });
 $("menu").onclick = () => sheet(!sheetOpen);
 $("close").onclick = () => { sheet(false); $("menu").focus(); };
 $("more").onclick = () => sheet(true, "detail");
-document.querySelectorAll(".seg button").forEach(b => b.onclick = () => selectTab(b.dataset.tab));
+const tabs = [...document.querySelectorAll(".seg button")];
+tabs.forEach((b, i) => {
+  b.onclick = () => selectTab(b.dataset.tab);
+  b.tabIndex = b.getAttribute("aria-selected") === "true" ? 0 : -1;
+  b.addEventListener("keydown", e => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    const next = tabs[(i + step + tabs.length) % tabs.length];
+    selectTab(next.dataset.tab); next.focus();
+  });
+});
 $("text").addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.value.trim()) { say(e.target.value); e.target.value = ""; }
 });
 $("sheet").addEventListener("keydown", e => { if (e.key === "Escape") { sheet(false); $("menu").focus(); } });
 $("confirm").querySelector(".yes").onclick = () => answer(true);
 $("confirm").querySelector(".no").onclick = () => answer(false);
-$("confirm").addEventListener("keydown", e => { if (e.key === "Escape") answer(false); });
+$("confirm").addEventListener("keydown", e => {
+  if (e.key === "Escape") answer(false);
+  if (e.key === "Tab") {   // focus stays in the question until it's answered
+    const [a, b] = $("confirm").querySelectorAll("button");
+    if (document.activeElement === (e.shiftKey ? a : b)) { e.preventDefault(); (e.shiftKey ? b : a).focus(); }
+  }
+});
 
 // ---------- clock
 function clock() { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }

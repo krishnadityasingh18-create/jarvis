@@ -54,7 +54,7 @@ function draw(cx, t) {
   layers.forEach((L, i) => {
     // the crisp lines keep their true colours; only the soft blooms add light (in the dark)
     cx.globalCompositeOperation = i > 1 && darkMode.matches ? "lighter" : "source-over";
-    const breathe = .85 + .15 * Math.sin(t * .8 + L.phase);
+    const breathe = reduced ? 1 : .85 + .15 * Math.sin(t * .8 + L.phase);   // no slow loop if motion is reduced
     const swell = 1 + m.energy * .025 * (i / 3);          // outer blooms swell with speech
     cx.globalAlpha = Math.min(1, L.alpha * m.bright * m.fade * breathe * (1 + m.energy * .6 * (i / 3)));
     cx.save(); cx.translate(w / 2, h / 2); cx.rotate(m.rot * L.turn + L.phase); cx.scale(swell * m.scale, swell * m.scale);
