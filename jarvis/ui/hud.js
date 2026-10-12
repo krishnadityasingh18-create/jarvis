@@ -113,9 +113,13 @@ function selectTab(name) {
 // make room: the stage glides left to centre in what the panel leaves (when there's space),
 // and notifications move off the panel so glass never stacks on glass
 function makeRoom() {
-  const wide = sheetOpen && innerWidth >= 1000, w = $("sheet").offsetWidth || 420;
-  move(".stage, .dock", { x: wide ? -w / 2 - 7 : 0 });
-  move("#toasts", { x: sheetOpen ? -(w + 30) : 0 });
+  const w = $("sheet").offsetWidth || Math.min(420, innerWidth - 28);
+  // room beside the panel (a half-screen snap has it): the stage and input bar shrink into it;
+  // otherwise the panel floats over the stage but stops above the input bar
+  const side = sheetOpen && innerWidth - w - 28 >= 420;
+  document.body.classList.toggle("panel-over", sheetOpen && !side);
+  move(".stage, .dock", { right: `${side ? w + 14 : 0}px` });
+  move("#toasts", { x: side ? -(w + 30) : 0 });
 }
 addEventListener("resize", () => { if (sheetOpen) makeRoom(); });
 function sheet(open, name) {

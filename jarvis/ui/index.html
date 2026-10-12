@@ -127,6 +127,7 @@
   /* ---- side panel */
   .sheet { position: fixed; top: 80px; right: 14px; bottom: 18px; z-index: 6; width: min(420px, calc(100% - 28px));
            border-radius: var(--r-lg); display: flex; flex-direction: column; overflow: hidden; will-change: transform, opacity; }
+  body.panel-over .sheet { bottom: calc(var(--dock, 56px) + 28px); }   /* never over the input bar */
   .sheet header { display: flex; align-items: center; gap: 6px; padding: 10px 10px 10px 12px; }
   .seg { flex: 1; display: flex; padding: 2px; border-radius: 10px; background: var(--fill); }
   .seg button { flex: 1; height: 28px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; font-size: 0.78125rem;
