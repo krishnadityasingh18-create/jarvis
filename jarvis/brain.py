@@ -18,9 +18,12 @@ NO_MODEL = "I can't reach any model right now, sir."
 NO_LOCAL = "I can't reach the local model, sir, and your files stay on this laptop."
 REDACTED = "[answer about the user's files, kept on this laptop]"
 BUDGET = "Sir, we've used 80 percent of this month's budget."
-STOPPED = "I've stopped after five steps, sir."
+STOPPED = "I ran out of steps before I could finish that, sir."
 MAX_SPOKEN = 2
-MAX_STEPS = 5
+MAX_STEPS = 12   # tool rounds per request; then one last answer from what was found
+WRAP_UP = ("(No more tools for this request. Answer now from what you've found so far; if part of "
+           "it is unfinished, say briefly what's left.)")
+REPEAT = "Already done in this request with the same arguments; the result is above. Use it."
 
 # A sentence ends at . ? ! followed by whitespace (so "3.5" never splits), or at a newline...
 _BOUNDARY = re.compile(r"[.?!](?=\s)|\n")
@@ -164,14 +167,17 @@ def _history(conn, redact: bool = False) -> list[dict]:
 async def agent_loop(ctx: tools.Ctx, messages: list[dict], route: str, tool_names: list[str],
                      fallback: bool = True, on_event=None) -> str:
     """Up to MAX_STEPS model calls, running tool calls in between. Returns all text.
+    At the cap, one more call without tools answers from what was found, so a long
+    request ends with an answer, not just "stopped". A tool call repeated with the same
+    arguments isn't run again (looping on one search was what used the steps up).
 
     on_event(kind, value) is awaited for ("route", name), ("text", delta), ("step_end", None),
-    ("tools", None) just before tools run, and ("capped", None) when the step cap is hit.
+    ("tools", None) just before tools run, and ("capped", None) when even the wrap-up is empty.
     """
     async def ev(kind, value=None):
         if on_event:
             await on_event(kind, value)
-    texts = []
+    texts, done = [], {}
     schemas = tools.schemas(tool_names) or None
     for _ in range(MAX_STEPS):
         step_text, calls = "", None
@@ -197,14 +203,30 @@ async def agent_loop(ctx: tools.Ctx, messages: list[dict], route: str, tool_name
         await ev("tools")
         declined = []
         for c in calls:
-            result = await tools.run(ctx, c)
+            key = (c["name"], c["arguments"] or "{}")
+            result = REPEAT if key in done else await tools.run(ctx, c)
+            done.setdefault(key, result)
             messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
             if result == tools.DECLINED:
                 declined.append(c["name"])
         if declined and ctx.agent:   # a "no" ends a sub-agent's work; it doesn't try again
             return "".join(texts).strip() + f"\n\n(The user declined {', '.join(declined)}.)"
-    await ev("capped")
-    return "".join(texts).strip() + "\n\n(Stopped after five steps.)"
+    # out of tool rounds: answer from what was found
+    step_route, step_fallback = ("local", False) if ctx.private else (route, fallback)
+    final = ""
+    async for kind, value in _aiter(stream_reply(ctx.cfg, ctx.conn,
+                                                 messages + [{"role": "user", "content": WRAP_UP}],
+                                                 step_route, tools=None, fallback=step_fallback)):
+        if kind == "tool_calls":
+            continue
+        if kind == "text":
+            final += value
+        await ev(kind, value)
+    await ev("step_end")
+    if not final.strip():
+        await ev("capped")
+        return "".join(texts).strip() + "\n\n(Stopped: out of steps.)"
+    return ("".join(texts) + final).strip()
 
 
 def _places() -> str:

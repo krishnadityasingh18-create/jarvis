@@ -250,12 +250,50 @@ async def test_tool_step_then_text(cfg, conn, monkeypatch):
     assert seen[0]["tools"] and seen[0]["route"] == "fast"
 
 
-async def test_five_step_cap_says_stopped(cfg, conn, monkeypatch):
-    monkeypatch.setattr(brain, "stream_reply",
-                        scripted(*[[("route", "fast"), tc("list_windows")]] * 5))
-    monkeypatch.setitem(__import__("jarvis.tools", fromlist=["TOOLS"]).TOOLS, "list_windows",
-                        __import__("jarvis.tools", fromlist=["Tool"]).Tool(
-                            "list_windows", lambda ctx: ("none", None), "x", {"type": "object"}))
+def _list_windows(monkeypatch, calls=None):
+    from jarvis.tools import TOOLS, Tool
+
+    def fn(ctx):
+        if calls is not None:
+            calls.append(1)
+        return "none", None
+    monkeypatch.setitem(TOOLS, "list_windows", Tool("list_windows", fn, "x", {"type": "object"}))
+
+
+async def test_step_cap_ends_with_an_answer_from_what_was_found(cfg, conn, monkeypatch):
+    seen = []
+    loop = [[("route", "fast"), tc("list_windows", n=i)] for i in range(brain.MAX_STEPS)]
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        *loop, [("route", "fast"), ("text", "Here's what I found, sir.")], seen=seen))
+    _list_windows(monkeypatch)
+    said = []
+
+    async def speak(s):
+        said.append(s)
+    await brain.run_turn(cfg, conn, "loop", "fast", noop_emit, speak)
+    assert said == ["Here's what I found, sir."]
+    last = seen[-1]
+    assert last["tools"] is None and last["messages"][-1] == {"role": "user", "content": brain.WRAP_UP}
+
+
+async def test_repeated_identical_tool_call_is_not_run_again(cfg, conn, monkeypatch):
+    seen, calls = [], []
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        [("route", "fast"), tc("list_windows")], [("route", "fast"), tc("list_windows")],
+        [("route", "fast"), ("text", "Done, sir.")], seen=seen))
+    _list_windows(monkeypatch, calls)
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "windows", "fast", noop_emit, speak)
+    assert calls == [1] and seen[-1]["messages"][-1]["content"] == brain.REPEAT
+
+
+async def test_step_cap_with_an_empty_wrap_up_says_stopped(cfg, conn, monkeypatch):
+    monkeypatch.setattr(brain, "stream_reply", scripted(
+        *[[("route", "fast"), tc("list_windows", n=i)] for i in range(brain.MAX_STEPS)],
+        [("route", "fast")]))
+    _list_windows(monkeypatch)
     said = []
 
     async def speak(s):
