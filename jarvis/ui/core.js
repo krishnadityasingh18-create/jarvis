@@ -45,8 +45,11 @@ function build(R) {
 
 function draw(cx, t) {
   const [w, h] = fit(cx.canvas), R = Math.round(Math.min(w, h) * .31);   // room for the bloom inside the canvas
-  if (R !== built) build(R);
   cx.clearRect(0, 0, w, h);
+  if (R < 4) return;   // minimised or squeezed to nothing: draw nothing (a 0-size image would throw)
+  // rebuilding blurs every frame of a window drag would stutter: rebuild only past 4%, scale between
+  if (!built || Math.abs(R - built) / built > .04) build(R);
+  const k = R / built;
   // a faint wash inside the ring, so it reads as an orb, not a hoop
   const g = cx.createRadialGradient(w / 2, h / 2, R * .1, w / 2, h / 2, R);
   g.addColorStop(0, "rgba(163,116,245,0)"); g.addColorStop(1, `rgba(163,116,245,${.08 * m.bright})`);
@@ -57,7 +60,7 @@ function draw(cx, t) {
     const breathe = reduced ? 1 : .85 + .15 * Math.sin(t * .8 + L.phase);   // no slow loop if motion is reduced
     const swell = 1 + m.energy * .025 * (i / 3);          // outer blooms swell with speech
     cx.globalAlpha = Math.min(1, L.alpha * m.bright * m.fade * breathe * (1 + m.energy * .6 * (i / 3)));
-    cx.save(); cx.translate(w / 2, h / 2); cx.rotate(m.rot * L.turn + L.phase); cx.scale(swell * m.scale, swell * m.scale);
+    cx.save(); cx.translate(w / 2, h / 2); cx.rotate(m.rot * L.turn + L.phase); cx.scale(swell * m.scale * k, swell * m.scale * k);
     cx.drawImage(L.c, -L.S / 2, -L.S / 2); cx.restore();
   });
   cx.globalAlpha = 1; cx.globalCompositeOperation = "source-over";
@@ -69,7 +72,8 @@ export function start(canvas, { visible, color }) {
   const cx = canvas.getContext("2d");
   createTimer({ onUpdate: self => {
     m.rot += m.spin * Math.min(.05, self.deltaTime / 1000);   // integrated: speed changes never jump
-    if (visible()) draw(cx, self.currentTime / 1000);
+    try { if (visible()) draw(cx, self.currentTime / 1000); }
+    catch (e) { built = 0; console.warn("orb frame skipped:", e); }   // one bad frame never stops the loop
   } });
   animate(m, { scale: 1, fade: 1, duration: reduced ? 0 : 1200, ease: "outQuart" });   // boot
   darkMode.addEventListener("change", () => { built = 0; });

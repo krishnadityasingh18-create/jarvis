@@ -318,6 +318,14 @@ $("confirm").addEventListener("keydown", e => {
   }
 });
 
+// ---------- any window size
+// the stage ends where the input bar (and any attachment chips above it) begins
+new ResizeObserver(([e]) => document.documentElement.style.setProperty("--dock", e.target.offsetHeight + "px"))
+  .observe(document.querySelector(".dock"));
+// a narrow window gets the short hint, so it never shows cut off
+const hint = () => { $("text").placeholder = innerWidth < 520 ? "Ask Jarvis…" : "Ask Jarvis, or say “Hey Jarvis”"; };
+hint(); addEventListener("resize", hint);
+
 // ---------- boot
 core.start($("sphere"), {
   visible: () => true,
