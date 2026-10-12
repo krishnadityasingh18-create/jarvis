@@ -16,7 +16,6 @@ function move(el, props, extra = {}) {
 }
 const STATUS = { idle: "Ready", listening: "Listening…", thinking: "Thinking…", speaking: "Speaking",
                  confirming: "Waiting for your answer", off: "Offline, reconnecting…" };
-const ICON = { done: "✓", failed: "✕", declined: "–", undone: "↶" };
 // tools/<module>.py → neural node
 const NODE = { notes: "memory", memory: "memory", web: "research", claude: "research", delegate: "research",
                github: "research", files: "study", apps: "system", windows: "system", edit: "system",
@@ -68,22 +67,6 @@ function toast(text) {
   const close = () => move(t, { x: 40, opacity: 0 }, { onComplete: () => t.remove() });
   x.onclick = close; t.append(body, x); $("toasts").append(t);
   move(t, { x: [40, 0], opacity: [0, 1] }); setTimeout(close, 15000);
-}
-
-// ---------- activity
-function actRow(a) {
-  let li = $("act" + a.id); const fresh = !li;
-  if (fresh) { li = el("li"); li.id = "act" + a.id; $("actlist").prepend(li); }
-  li.replaceChildren();
-  li.append(el("span", a.status, ICON[a.status] || "·"));
-  li.lastChild.title = a.status + ": " + (a.result || "");
-  const t = el("span", "tool", a.tool.replace(/_/g, " ") + " ");
-  t.append(el("em", null, Object.values(a.args || {}).join(" ").replace(/[*_`#>]+/g, "") + (a.agent ? " · via " + a.agent : "")));
-  t.title = t.textContent; li.append(t, el("span", "t", (a.ts || "").slice(11, 16)));
-  if (a.status === "done" && a.undo) {
-    const b = el("button", "btn", "Undo"); b.type = "button"; b.onclick = () => send({ type: "undo", id: a.id }); li.append(b);
-  } else li.append(el("span"));
-  if (fresh && sheetOpen && tab === "activity") move(li, { opacity: [0, 1], y: [-6, 0] });
 }
 
 // ---------- confirm: a modal question, so dim to focus
@@ -276,9 +259,7 @@ const on = {
   turn_end() { current = null; setState("idle"); },
   route(m) { status(`Thinking with ${m.route}…`); },
   banner(m) { toast(m.text); },
-  actions(m) { $("actlist").replaceChildren(); [...m.actions].reverse().forEach(actRow); },
   action(m) {
-    actRow(m);
     const credits = m.tool === "call_me" && m.status === "done" && (m.result || "").split("Credits — ")[1];
     if (credits) credits.split(" · ").forEach(c => bubble("note", c));   // Jarvis called: what's left
   },

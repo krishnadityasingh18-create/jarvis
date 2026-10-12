@@ -157,12 +157,6 @@
   #detail table { border-collapse: collapse; font-size: 0.8125rem; }
   #detail td, #detail th { border-bottom: 1px solid var(--sep); padding: 5px 8px; text-align: left; }
   #detail a { color: var(--blue); }
-  #actlist { list-style: none; margin: 0; padding: 0; }
-  #actlist li { display: grid; grid-template-columns: 18px 1fr auto auto; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--sep); font-size: 0.875rem; }
-  #actlist .tool { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #actlist .tool em { font-style: normal; color: var(--text2); }
-  #actlist .t { color: var(--text2); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-  #actlist .done { color: var(--ok); } #actlist .failed { color: var(--danger); } #actlist .undone, #actlist .declined { color: var(--text2); }
   .btn { height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: var(--fill); cursor: pointer; font-size: 0.8125rem; font-weight: 500; }
   .btn:hover { background: var(--fill-hover); }
   .btn.primary { background: var(--blue); color: #fff; }
@@ -299,7 +293,6 @@
     <div class="seg" role="tablist" aria-label="Sections">
       <button type="button" role="tab" data-tab="conv" aria-selected="true">Chat</button>
       <button type="button" role="tab" data-tab="detail" aria-selected="false">Details</button>
-      <button type="button" role="tab" data-tab="activity" aria-selected="false">Activity</button>
       <button type="button" role="tab" data-tab="chats" aria-selected="false">History</button>
       <button type="button" role="tab" data-tab="neural" aria-selected="false">Neural</button>
     </div>
@@ -309,7 +302,6 @@
   </header>
   <section class="panel" data-panel="conv" role="tabpanel"><div id="transcript"></div></section>
   <section class="panel" data-panel="detail" role="tabpanel" hidden><div id="detail"></div></section>
-  <section class="panel" data-panel="activity" role="tabpanel" hidden><h2>What Jarvis did</h2><ol id="actlist"></ol></section>
   <section class="panel" data-panel="chats" role="tabpanel" hidden>
     <div class="panel-head"><h2>Past chats</h2>
       <button class="btn primary" id="newchat" type="button">
