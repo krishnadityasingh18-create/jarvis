@@ -227,6 +227,22 @@ class Hub:
         self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(coro()))
 
 
+def save_screenshot(folder: Path | None = None, grab=None) -> dict:
+    """The UI's "Take a screenshot": every screen, saved next to the uploads, then attached."""
+    if grab is None:
+        from PIL import ImageGrab
+        grab = lambda: ImageGrab.grab(all_screens=True)  # noqa: E731
+    folder = folder or UPLOADS
+    try:
+        img = grab()
+    except Exception as e:
+        return {"type": "banner", "text": f"Couldn't take a screenshot: {e}"}
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"Screenshot {datetime.now():%Y-%m-%d %H%M%S}.png"
+    img.save(path)
+    return {"type": "uploaded", "name": path.name, "path": str(path)}
+
+
 def save_upload(name: str, data_b64: str, folder: Path | None = None) -> dict:
     """A file attached in the UI: saved (never overwriting) where JARVIS's file tools reach."""
     folder = folder or UPLOADS
@@ -313,6 +329,8 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                     await hub.switch_chat(m["id"])
                 elif m.get("type") == "mute":
                     await hub.set_muted(bool(m.get("on")))
+                elif m.get("type") == "screenshot":
+                    await sock.send_json(await asyncio.to_thread(save_screenshot))
                 elif m.get("type") == "upload":
                     await sock.send_json(save_upload(str(m.get("name", "")),
                                                      str(m.get("data", ""))))

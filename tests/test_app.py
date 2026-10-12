@@ -355,3 +355,17 @@ def test_save_upload_never_overwrites_and_strips_paths(tmp_path):
     assert a["name"] == "evil.txt" and b["name"] == "evil (1).txt"
     assert (tmp_path / "evil (1).txt").read_bytes() == b"hello"
     assert save_upload("x.txt", "not base64!", tmp_path)["type"] == "banner"
+
+
+def test_save_screenshot_attaches_a_png_and_reports_failures(tmp_path):
+    from PIL import Image
+
+    from jarvis.app import save_screenshot
+    r = save_screenshot(tmp_path, grab=lambda: Image.new("RGB", (4, 3)))
+    assert r["type"] == "uploaded" and r["name"].startswith("Screenshot ") and r["name"].endswith(".png")
+    assert Image.open(r["path"]).size == (4, 3)
+
+    def fail():
+        raise OSError("no display")
+    assert save_screenshot(tmp_path, grab=fail) == {"type": "banner",
+                                                    "text": "Couldn't take a screenshot: no display"}

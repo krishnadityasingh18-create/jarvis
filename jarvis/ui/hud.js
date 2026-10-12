@@ -188,6 +188,36 @@ function say(text) {
   attached = []; renderFiles(); send({ type: "text_input", text });
 }
 
+// ---------- the + menu (as in Claude's desktop app): grows out of its button
+let menuOpen = false;
+const items = () => [...$("plusmenu").querySelectorAll(".mi")];
+function menu(open) {
+  if (open === menuOpen) return;
+  menuOpen = open; $("plus").setAttribute("aria-expanded", open);
+  const mn = $("plusmenu");
+  if (open) {
+    if (mn.hidden) { utils.set(mn, { opacity: 0, scale: .92, y: 6 }); mn.hidden = false; }
+    move(mn, { opacity: 1, scale: 1, y: 0 });
+    items()[0].focus();
+  } else {
+    move(mn, { opacity: 0, scale: .92, y: 6 }, { onComplete: () => { if (!menuOpen) mn.hidden = true; } });
+  }
+}
+$("plus").onclick = () => menu(!menuOpen);
+$("plusmenu").addEventListener("keydown", e => {
+  const list = items(), i = list.indexOf(document.activeElement);
+  const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+  if (step) { e.preventDefault(); list[(i + step + list.length) % list.length].focus(); }
+  else if (e.key === "Home" || e.key === "End") { e.preventDefault(); list[e.key === "Home" ? 0 : list.length - 1].focus(); }
+  else if (e.key === "Escape") { menu(false); $("plus").focus(); }
+  else if (e.key === "Tab") menu(false);
+});
+addEventListener("pointerdown", e => { if (menuOpen && !e.target.closest?.(".plus")) menu(false); });
+$("m-files").onclick = () => { menu(false); $("upload").click(); };
+$("m-shot").onclick = () => { menu(false); status("Taking a screenshot…"); send({ type: "screenshot" }); };
+// the switch stays in the menu; it just flips the model like the top bar does
+$("m-think").onclick = () => setRoute($("m-think").getAttribute("aria-checked") === "true" ? "fast" : "reasoning", true);
+
 // ---------- events from the server
 const on = {
   history(m) {
@@ -202,7 +232,7 @@ const on = {
     screenText = last ? last.screen : ""; renderDetail();
     $("caption").textContent = last ? last.content : "";
     $("asked").textContent = asked ? asked.content.split("\n")[0] : "";
-    $("route").value = m.route;
+    setRoute(m.route);
   },
   state(m) { setState(m.state); },
   user_text(m) {
@@ -240,7 +270,7 @@ const on = {
     b.querySelector(".on").hidden = m.muted; b.querySelector(".off").hidden = !m.muted;
     if (state === "idle") { state = ""; setState("idle"); }   // refresh the status note
   },
-  uploaded(m) { attached.push(m); renderFiles(); move("#files li:last-child", { opacity: [0, 1], scale: [.9, 1] }); $("text").focus(); },
+  uploaded(m) { if (state === "idle") status(STATUS.idle); attached.push(m); renderFiles(); move("#files li:last-child", { opacity: [0, 1], scale: [.9, 1] }); $("text").focus(); },
 };
 
 function connect() {
@@ -252,7 +282,11 @@ function connect() {
 const send = m => ws?.readyState === 1 && ws.send(JSON.stringify(m));
 
 // ---------- controls
-$("route").onchange = e => send({ type: "set_route", route: e.target.value });
+function setRoute(r, tell = false) {
+  $("route").value = r; $("m-think").setAttribute("aria-checked", r === "reasoning");
+  if (tell) send({ type: "set_route", route: r });
+}
+$("route").onchange = e => setRoute(e.target.value, true);
 $("newchat").onclick = () => send({ type: "new_chat" });
 $("core").onclick = () => send({ type: "cancel" });
 $("mic").onclick = () => send({ type: "mute", on: !mic.muted });
@@ -283,10 +317,6 @@ $("confirm").addEventListener("keydown", e => {
     if (document.activeElement === (e.shiftKey ? a : b)) { e.preventDefault(); (e.shiftKey ? b : a).focus(); }
   }
 });
-
-// ---------- clock
-function clock() { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
-clock(); setInterval(clock, 15000);
 
 // ---------- boot
 core.start($("sphere"), {
