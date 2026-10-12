@@ -180,6 +180,7 @@ class VoiceLoop:
                                     blocksize=int(sr * FRAME_MS / 1000),
                                     callback=lambda d, *_: blocks.put(d[:, 0].copy())):
                     self.available = True
+                    self.on_event("mic", {"muted": self.muted, "available": True})   # tell the UI
                     pending = np.zeros(0, dtype=np.float32)
                     while True:
                         try:  # an unplugged mic stops the callbacks without raising
@@ -192,6 +193,7 @@ class VoiceLoop:
                             pending = pending[FRAME:]
             except Exception as e:
                 self.available = False
+                self.on_event("mic", {"muted": self.muted, "available": False})
                 self.on_event("banner", {"text": f"{NO_MIC} ({e.__class__.__name__})"})
                 time.sleep(10)
 

@@ -72,6 +72,12 @@
   .vital .k b { color: var(--acc); font-weight: 500; }
   .vital .v { font: 500 26px/1.15 var(--head); font-variant-numeric: tabular-nums; }
   .vital .v small { font-size: 13px; color: var(--mute); }
+  #reqs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 10px; padding-top: 8px; }
+  #reqs:not(:empty)::before { content: "Requests today"; grid-column: 1 / -1; font: 400 10px var(--mono); letter-spacing: .16em;
+                              text-transform: uppercase; color: var(--mute); }
+  .req span { display: block; font: 400 9px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .req b { font: 500 18px/1.1 var(--head); font-variant-numeric: tabular-nums; }
   .bar { height: 2px; background: var(--line); margin-top: 4px; }
   .bar i { display: block; height: 100%; width: 0; background: var(--acc); transition: background .5s; }
   .bar.warn i { background: var(--warn); }

@@ -266,7 +266,10 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
         # only reach the token-protected away-channel API, never the desk UI.
         if _tunnelled(request.headers) and request.url.path not in remote.PATHS:
             return JSONResponse({"detail": "the desk is local-only"}, status_code=403)
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/ui/"):
+            response.headers["Cache-Control"] = "no-cache"   # a UI update shows on the next load
+        return response
 
     @app.get("/")
     async def index():

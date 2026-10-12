@@ -166,8 +166,7 @@ const on = {
       animate($(id).firstElementChild, { width: pct + "%", duration: D(900), ease: "outExpo" });
     }
     $("reqs").replaceChildren(...req.map(([p, n]) => {
-      const d = el("div", "vital"), k = el("div", "k");
-      k.append(el("span", null, p), el("b", null, "today")); d.append(k, el("div", "v", n)); return d;
+      const d = el("div", "req"); d.append(el("span", null, p.replace(/_/g, " ")), el("b", null, n)); return d;
     }));
   },
   state(m) { setState(m.state); },
