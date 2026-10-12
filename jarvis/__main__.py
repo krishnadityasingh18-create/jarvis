@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 import urllib.request
+from pathlib import Path
 
 import uvicorn
 
@@ -72,6 +73,14 @@ def remote_cli(args: list[str]) -> None:
         print("usage: python -m jarvis remote token | remote tunnel")
 
 
+def desk_windows() -> list[int]:
+    """JARVIS windows already open (Edge app windows titled Jarvis)."""
+    from jarvis.app import WINDOW_TITLE
+    from jarvis.tools import windows
+    return [w["hwnd"] for w in windows.list_top()
+            if w["title"] == WINDOW_TITLE and Path(w["exe"]).stem.lower() == "msedge"]
+
+
 def open_window() -> None:
     for _ in range(60):
         try:
@@ -79,6 +88,11 @@ def open_window() -> None:
             break
         except OSError:
             time.sleep(0.5)
+    # a restart used to open another window each time; an open one reconnects by itself
+    if mine := desk_windows():
+        from jarvis.tools import windows
+        windows._bring(mine[0])
+        return
     subprocess.Popen([EDGE, f"--app={URL}"])
 
 
