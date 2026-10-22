@@ -1,6 +1,5 @@
 const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
 
 const URL = process.env.JARVIS_ISLAND_URL || 'http://127.0.0.1:8765/island';
 const W = 560, H = 660;
@@ -13,13 +12,12 @@ const place = () => {
 };
 const top = () => win && win.setAlwaysOnTop(true, 'screen-saver');
 
-// full view = the Edge HUD app window
-const fullView = () =>
-  spawn('msedge.exe', ['--app=http://127.0.0.1:8765'], { detached: true, stdio: 'ignore' }).unref();
+// full view: the page sends {"type":"full_view"} so Python's open_full_view de-dupes
+const fullView = () => win && win.webContents.send('island:full-view');
 
-if (!app.requestSingleInstanceLock()) app.quit();
-
-app.whenReady().then(() => {
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else app.whenReady().then(() => {
   win = new BrowserWindow({
     width: W, height: H, x: 0, y: 0,
     transparent: true, frame: false, resizable: false, movable: false,

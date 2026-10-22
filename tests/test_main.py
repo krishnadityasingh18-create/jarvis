@@ -30,6 +30,13 @@ def test_crash_restarts_once_then_stops(env):
     assert len(launched) == 2
 
 
+def test_crash_then_clean_exit_launches_twice(env):
+    popen, launched, codes, _ = env
+    codes += [1, 0]
+    m.open_island(popen)
+    assert len(launched) == 2
+
+
 def test_clean_quit_is_not_restarted(env):
     popen, launched, codes, _ = env
     codes += [0]
