@@ -20,6 +20,9 @@ python -m venv .venv
 .venv\Scripts\python -m pip install --force-reinstall --no-deps onnxruntime-gpu==1.23.2
 ```
 
+- **Island (Electron):** `npm install --prefix desktop` (and `npm install --prefix desktop/wa`
+  once the WhatsApp helper exists). Behind Cloudflare WARP set `NODE_OPTIONS=--use-system-ca` first.
+  Without it JARVIS falls back to the Edge window.
 - **Don't install `pip-system-certs`** in this venv. `openai` and `huggingface_hub`
   already use the Windows certificate store (so Cloudflare WARP works), and
   pip-system-certs makes them crash with `RecursionError`.

@@ -14,6 +14,8 @@ from jarvis.config import get_key, load_config, set_key
 
 HOST, PORT = "127.0.0.1", 8765
 URL = f"http://{HOST}:{PORT}"
+DESKTOP = Path(__file__).resolve().parent.parent / "desktop"
+ELECTRON = DESKTOP / "node_modules" / "electron" / "dist" / "electron.exe"
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 
@@ -81,19 +83,34 @@ def desk_windows() -> list[int]:
             if w["title"] == WINDOW_TITLE and Path(w["exe"]).stem.lower() == "msedge"]
 
 
-def open_window() -> None:
+def wait_for_server() -> None:
     for _ in range(60):
         try:
             urllib.request.urlopen(URL, timeout=1)
-            break
+            return
         except OSError:
             time.sleep(0.5)
+
+
+def open_full_view() -> None:
+    wait_for_server()
     # a restart used to open another window each time; an open one reconnects by itself
     if mine := desk_windows():
         from jarvis.tools import windows
         windows._bring(mine[0])
         return
     subprocess.Popen([EDGE, f"--app={URL}"])
+
+
+def open_island(popen=subprocess.Popen) -> None:
+    """Run the Electron island; restart once on a crash, not on a clean quit (tray Quit)."""
+    if not ELECTRON.exists():
+        print("[jarvis] island not installed; run: npm install --prefix desktop")
+        return open_full_view()
+    wait_for_server()
+    for _ in range(2):
+        if popen([str(ELECTRON), str(DESKTOP)]).wait() == 0:
+            return
 
 
 def hook_hotkey(voice, key: str) -> None:
@@ -143,7 +160,8 @@ def main() -> None:
     files.start_indexer(cfg, lambda text: on_event("banner", {"text": text}))
     voice.start()
     hook_hotkey(voice, cfg.ptt_key)
-    threading.Thread(target=open_window, daemon=True).start()
+    hub.open_full_view = open_full_view
+    threading.Thread(target=open_island, daemon=True).start()
     print(f"[jarvis] {URL}  (push-to-talk: {cfg.ptt_key}; Ctrl+C to quit)")
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 

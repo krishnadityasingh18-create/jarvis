@@ -8,3 +8,5 @@ __pycache__/
 models/
 docs/ui-reference/
 .claude/
+desktop/node_modules/
+desktop/wa/node_modules/
