@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Island</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+@property --a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+:root {
+  --ink: #f5f5f7; --dim: rgba(235,235,245,.6); --faint: rgba(235,235,245,.32);
+  --line: rgba(255,255,255,.08); --accent: #A374F5;
+  --me: linear-gradient(135deg, #5b7cff 0%, #9a6bff 100%);
+  --glass: rgba(20,20,26,.66);
+  --spectrum: #4F8BFF, #B26BFF, #FF5EA8, #FF8A4C, #FFC46B, #FF5EA8, #B26BFF, #3FC8FF, #4F8BFF;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body {
+  font: 14px/1.4 Inter, "Segoe UI Variable", system-ui, sans-serif; color: var(--ink);
+  background: #0b0b10; overflow: hidden; -webkit-font-smoothing: antialiased;
+}
+/* a stand-in desktop so the glass has something to sit on */
+.wall { position: fixed; inset: 0; background:
+  radial-gradient(40% 50% at 18% 30%, #2b3d8f 0%, transparent 70%),
+  radial-gradient(35% 45% at 82% 25%, #6b2a7a 0%, transparent 70%),
+  radial-gradient(45% 50% at 60% 85%, #0f5c6e 0%, transparent 70%), #0b0b10; }
+.wall::after { content: ""; position: absolute; inset: 0; opacity: .5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.06'/%3E%3C/svg%3E"); }
+.taskbar { position: fixed; left: 0; right: 0; bottom: 0; height: 48px; background: rgba(20,20,26,.55);
+  backdrop-filter: blur(20px); border-top: 1px solid var(--line); }
+
+/* ---------- island ---------- */
+#goo { position: fixed; inset: 0; filter: url(#gooey); pointer-events: none; }
+#goo > div { position: absolute; background: #000; will-change: transform; }
+#glow { position: fixed; pointer-events: none; opacity: 0; transition: opacity .5s ease;
+  background: conic-gradient(from var(--a), var(--spectrum)); filter: blur(9px);
+  animation: spin 3.2s linear infinite; }
+#rim { position: fixed; pointer-events: none; opacity: 0; transition: opacity .4s ease;
+  background: conic-gradient(from var(--a), var(--spectrum)); animation: spin 3.2s linear infinite; }
+@keyframes spin { to { --a: 360deg; } }
+
+#shell { position: fixed; top: 10px; overflow: hidden; cursor: pointer; background: #000;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35); contain: layout paint;
+  transition: background-color .35s ease, box-shadow .45s ease, border-color .35s ease;
+  border: 1px solid transparent; }
+#shell.open { cursor: default; background: var(--glass); backdrop-filter: blur(34px) saturate(1.7);
+  border-color: var(--line);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 40px 90px rgba(0,0,0,.55), 0 0 0 .5px rgba(0,0,0,.6); }
+body.black #shell.open { background: rgba(6,6,8,.96); backdrop-filter: none; }
+
+#orb { position: absolute; left: 0; top: 0; width: 64px; height: 64px; transform-origin: 0 0; pointer-events: none; }
+#orb canvas { width: 64px; height: 64px; display: block; transition: filter .7s ease; }
+/* each state has its own colour, motion and words */
+body.st-listening #orb canvas { filter: hue-rotate(-40deg) saturate(1.35) brightness(1.15); }
+body.st-thinking #orb canvas { filter: hue-rotate(70deg) saturate(1.5); }
+#eq { position: absolute; right: 40px; top: 0; height: 38px; display: flex; gap: 2.5px; align-items: center; opacity: 0; transition: opacity .25s; }
+#eq i { width: 3px; height: 18px; border-radius: 2px; background: linear-gradient(#9be7ff, #4F8BFF); transform: scaleY(.2); }
+body.st-listening #eq { opacity: 1; }
+body.st-listening #mid { right: 78px; }
+.shim { background: linear-gradient(90deg, rgba(255,255,255,.35) 0%, #fff 42%, #FFC46B 50%, #fff 58%, rgba(255,255,255,.35) 100%);
+  background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shim 1.5s linear infinite; }
+@keyframes shim { from { background-position: 110% 0; } to { background-position: -110% 0; } }
+/* thinking: a comet of light circles the island edge, round and round until the answer starts */
+@property --c { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+#comet, #cometGlow { position: fixed; pointer-events: none; opacity: 0; transition: opacity .45s ease;
+  background: conic-gradient(from var(--c), transparent 0deg 220deg, rgba(255,196,107,.4) 280deg, #FFC46B 330deg, #FF5EA8 350deg, #fff 357deg, transparent 360deg);
+  animation: comet 1.6s linear infinite; }
+#cometGlow { filter: blur(8px); }
+body.st-thinking #comet { opacity: 1; } body.st-thinking #cometGlow { opacity: 1; }
+body.st-thinking.isopen #comet, body.st-thinking.isopen #cometGlow { opacity: 0; }
+@keyframes comet { to { --c: 360deg; } }
+.tk { display: inline-flex; align-items: center; gap: 6px; animation: wordIn .5s cubic-bezier(.2,.8,.2,1) both; }
+.tk svg { width: 13px; height: 13px; opacity: .75; flex: none; }
+.tk .d { color: var(--dim); font-weight: 400; }
+.lbl { color: var(--dim); animation: wordIn .4s cubic-bezier(.2,.8,.2,1) both; }
+
+.mic { position: absolute; width: 28px; height: 28px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: rgba(255,255,255,.1); color: var(--ink); cursor: pointer; transition: background .2s, transform .25s cubic-bezier(.3,1.6,.5,1); }
+.mic:hover { background: rgba(255,255,255,.18); }
+.mic:active, .mic.hot { transform: scale(.9); }
+.mic.hot { background: #fff; color: #000; }
+.mic svg { width: 14px; height: 14px; }
+.mic .lvl { position: absolute; inset: -3px; border-radius: 50%; border: 2px solid rgba(255,255,255,.55);
+  opacity: 0; transform: scale(var(--l, 1)); transition: opacity .2s; }
+.mic.hot .lvl { opacity: 1; }
+#cmic { right: 5px; top: 5px; }
+
+#mid { position: absolute; left: 44px; right: 44px; top: 0; height: 38px; display: flex; align-items: center;
+  white-space: nowrap; overflow: hidden; font-size: 13px; font-weight: 500; letter-spacing: -.01em;
+  mask-image: linear-gradient(90deg, #000 85%, transparent); transition: opacity .2s; }
+#mid .w { display: inline-block; opacity: 0; filter: blur(6px); transform: translateY(3px);
+  animation: wordIn .38s cubic-bezier(.2,.8,.2,1) forwards; margin-right: .28em; }
+@keyframes wordIn { to { opacity: 1; filter: none; transform: none; } }
+#peek { position: absolute; left: 14px; right: 14px; top: 40px; font-size: 12px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .2s; }
+#peek b { color: var(--ink); font-weight: 500; }
+#collapsed { position: absolute; inset: 0; transition: opacity .16s ease; }
+
+/* confirm card (island grows to a mid size) */
+#confirm { position: absolute; left: 50%; top: 0; width: 380px; transform: translateX(-50%); padding: 14px 18px 14px 56px;
+  opacity: 0; pointer-events: none; transition: opacity .2s ease .08s; }
+#confirm.on { opacity: 1; pointer-events: auto; }
+#confirm .k { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+#confirm .msg { margin: 4px 0 12px; font-size: 13.5px; }
+#confirm .msg i { color: var(--dim); font-style: normal; }
+.btns { display: flex; gap: 8px; }
+.btn { flex: 1; height: 32px; border-radius: 16px; border: 0; font: 600 13px Inter, system-ui; cursor: pointer;
+  background: rgba(255,255,255,.1); color: var(--ink); transition: transform .25s cubic-bezier(.3,1.6,.5,1), background .2s; }
+.btn:hover { background: rgba(255,255,255,.16); }
+.btn:active { transform: scale(.95); }
+.btn.go { background: #25D366; color: #04210f; }
+.btn.go:hover { background: #3be07a; }
+
+/* ---------- expanded panel ---------- */
+#panel { position: absolute; left: 50%; top: 0; width: 440px; height: 600px; transform: translateX(-50%) scale(.97);
+  opacity: 0; filter: blur(6px); pointer-events: none; display: flex; flex-direction: column;
+  transition: opacity .22s ease, filter .3s ease, transform .4s cubic-bezier(.2,.8,.2,1); }
+#shell.open #panel.in { opacity: 1; filter: none; transform: translateX(-50%); pointer-events: auto; }
+.head { height: 80px; flex: none; display: flex; align-items: center; padding: 0 16px 0 76px; gap: 10px; }
+.head .t { flex: 1; min-width: 0; }
+.head h1 { font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
+.head .s { font-size: 12px; color: var(--dim); display: flex; gap: 6px; align-items: center; }
+.head .s::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #34c759; }
+.ib { width: 30px; height: 30px; border-radius: 10px; border: 0; background: rgba(255,255,255,.06); color: var(--dim);
+  display: grid; place-items: center; cursor: pointer; transition: background .2s, color .2s, transform .25s cubic-bezier(.3,1.6,.5,1); }
+.ib:hover { background: rgba(255,255,255,.12); color: var(--ink); }
+.ib:active { transform: scale(.9); }
+.ib svg { width: 15px; height: 15px; }
+
+.glance { display: flex; gap: 8px; padding: 0 16px 12px; overflow-x: auto; scrollbar-width: none; flex: none; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; }
+.g { flex: none; width: 132px; padding: 10px 12px; border-radius: 16px; background: rgba(255,255,255,.05);
+  border: 1px solid var(--line); scroll-snap-align: start; }
+.g .l { font-size: 11px; color: var(--dim); display: flex; gap: 5px; align-items: center; }
+.g .l svg { width: 12px; height: 12px; }
+.g .v { font-size: 14px; font-weight: 600; margin-top: 2px; letter-spacing: -.01em; }
+.g .v small { font-weight: 400; color: var(--dim); font-size: 12px; }
+
+.seg { position: relative; display: flex; margin: 0 16px 10px; padding: 3px; border-radius: 12px; background: rgba(255,255,255,.06); flex: none; }
+.seg button { position: relative; z-index: 1; flex: 1; height: 28px; border: 0; background: none; color: var(--dim);
+  font: 500 13px Inter, system-ui; cursor: pointer; transition: color .2s; }
+.seg button.on { color: var(--ink); }
+.seg .pill { position: absolute; top: 3px; left: 0; height: 28px; border-radius: 9px; background: rgba(255,255,255,.12);
+  box-shadow: 0 1px 2px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06); }
+
+.body { position: relative; flex: 1; min-height: 0; }
+.view { position: absolute; inset: 0; overflow-y: auto; padding: 4px 16px 12px; scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.15) transparent; transition: opacity .22s ease, transform .3s cubic-bezier(.2,.8,.2,1), filter .25s; }
+.view:not(.on) { opacity: 0; transform: translateY(6px); filter: blur(4px); pointer-events: none; }
+
+.recent { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 10px; }
+.chip { flex: none; padding: 6px 10px; border-radius: 999px; font-size: 12px; background: rgba(255,255,255,.06);
+  border: 1px solid var(--line); color: var(--dim); cursor: pointer; transition: background .2s, color .2s; }
+.chip:hover, .chip.on { background: rgba(255,255,255,.12); color: var(--ink); }
+.day { text-align: center; margin: 4px 0 10px; }
+.day span { font-size: 11px; color: var(--dim); background: rgba(255,255,255,.06); padding: 3px 10px; border-radius: 8px; }
+.b { position: relative; display: flow-root; width: fit-content; max-width: 78%; padding: 7px 10px 6px; margin: 2px 0; border-radius: 16px; font-size: 13.5px;
+  animation: pop .45s cubic-bezier(.25,1.35,.45,1) both; }
+@keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.96); } }
+.b .m { font-size: 10.5px; color: rgba(255,255,255,.55); float: right; margin: 6px 0 -2px 10px; display: flex; gap: 3px; align-items: center; }
+.b.me { margin-left: auto; background: var(--me); border-bottom-right-radius: 5px; }
+body.green .b.me { background: #005c4b; }
+.b.jv { background: rgba(255,255,255,.08); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
+.b + .b.me, .b + .b.jv { margin-top: 2px; }
+.b.me + .b.jv, .b.jv + .b.me { margin-top: 8px; }
+.voice { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(255,255,255,.75); margin-bottom: 3px; }
+.voice i { display: inline-flex; gap: 2px; align-items: center; height: 12px; }
+.voice i b { width: 2px; border-radius: 1px; background: currentColor; }
+.src { display: inline-flex; gap: 5px; align-items: center; margin-top: 6px; padding: 4px 8px; border-radius: 8px;
+  background: rgba(0,0,0,.25); font-size: 11.5px; color: var(--dim); }
+.src svg { width: 12px; height: 12px; }
+.wa { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: rgba(37,211,102,.1); border-left: 3px solid #25D366; font-size: 12.5px; }
+.wa .who { font-size: 11px; color: #25D366; font-weight: 600; }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile { border-radius: 16px; background: rgba(255,255,255,.05); border: 1px solid var(--line); overflow: hidden; cursor: pointer;
+  transition: transform .35s cubic-bezier(.25,1.4,.45,1), background .2s; }
+.tile:hover { transform: translateY(-2px) scale(1.015); background: rgba(255,255,255,.08); }
+.tile:active { transform: scale(.98); }
+.prev { height: 92px; padding: 10px; background: rgba(0,0,0,.25); position: relative; overflow: hidden; }
+.prev .ln { height: 5px; border-radius: 3px; background: rgba(255,255,255,.14); margin-bottom: 6px; }
+.prev code { font: 10px/1.5 ui-monospace, Consolas, monospace; color: #9ecbff; white-space: pre; }
+.tile .cap { padding: 8px 10px; }
+.tile .n { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .k { font-size: 11px; color: var(--dim); }
+
+.search { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 11px; background: rgba(255,255,255,.06);
+  color: var(--dim); margin-bottom: 10px; font-size: 13px; }
+.search svg { width: 14px; height: 14px; }
+.drop { border: 1.5px dashed rgba(255,255,255,.16); border-radius: 14px; padding: 12px; text-align: center; font-size: 12px; color: var(--dim); margin-bottom: 10px; }
+.item { display: flex; gap: 10px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+.item .ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none; }
+.item .ic svg { width: 16px; height: 16px; }
+.item .n { font-size: 13px; font-weight: 500; }
+.item .k { font-size: 11.5px; color: var(--dim); }
+
+.bar { flex: none; display: flex; gap: 8px; align-items: center; padding: 10px 12px 12px; }
+.bar .in { flex: 1; height: 38px; border-radius: 19px; background: rgba(255,255,255,.07); border: 1px solid var(--line);
+  display: flex; align-items: center; padding: 0 14px; color: var(--faint); font-size: 13.5px; }
+.bar .mic { position: relative; width: 38px; height: 38px; }
+.bar .mic svg { width: 16px; height: 16px; }
+
+/* split bubble + notification overlays */
+#bub { position: fixed; width: 38px; height: 38px; display: grid; place-items: center; opacity: 0; transition: opacity .2s; pointer-events: none; }
+#bub svg { width: 26px; height: 26px; transform: rotate(-90deg); }
+#note { position: fixed; display: flex; gap: 10px; align-items: center; padding: 0 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+#note .ic { width: 34px; height: 34px; border-radius: 10px; background: #25D366; display: grid; place-items: center; flex: none; }
+#note .ic svg { width: 18px; height: 18px; color: #04210f; }
+#note .n { font-size: 13px; font-weight: 600; }
+#note .k { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- demo controls (not part of the design) ---------- */
+.demo { position: fixed; left: 16px; bottom: 64px; width: 300px; padding: 14px; border-radius: 18px; background: rgba(14,14,18,.8);
+  backdrop-filter: blur(20px); border: 1px solid var(--line); font-size: 12px; }
+.demo h3 { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin: 2px 0 8px; font-weight: 600; }
+.demo .row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.demo button { height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.06);
+  color: var(--ink); font: 500 12px Inter, system-ui; cursor: pointer; }
+.demo button:hover { background: rgba(255,255,255,.12); }
+.demo button.on { background: var(--accent); border-color: transparent; color: #fff; }
+.demo p { color: var(--dim); line-height: 1.5; }
+.pick { position: fixed; right: 16px; bottom: 64px; width: 280px; padding: 14px; border-radius: 18px; background: rgba(14,14,18,.8);
+  backdrop-filter: blur(20px); border: 1px solid var(--line); }
+.pick h3 { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 8px; font-weight: 600; }
+.options { display: flex; gap: 6px; margin-bottom: 12px; }
+.option { flex: 1; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.04); cursor: pointer; font-size: 12px; transition: all .2s; }
+.option.selected { border-color: var(--accent); background: rgba(163,116,245,.18); }
+.option b { display: block; font-size: 12.5px; }
+.option span { color: var(--dim); font-size: 11px; }
+@media (max-width: 900px) { .demo, .pick { display: none; } }
+</style>
+</head>
+<body>
+<div class="wall"></div>
+<div class="taskbar"></div>
+
+<svg width="0" height="0" style="position:absolute">
+  <filter id="gooey"><feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b"/>
+    <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter>
+</svg>
+
+<div id="goo"><div id="gPill"></div><div id="gBub"></div><div id="gNote"></div></div>
+<div id="glow"></div><div id="rim"></div><div id="cometGlow"></div><div id="comet"></div>
+
+<div id="shell" role="button" aria-label="JARVIS">
+  <div id="orb"><canvas width="128" height="128"></canvas></div>
+
+  <div id="collapsed">
+    <div id="mid"></div>
+    <div id="eq"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="peek">Last · <b>Physics is at 9:00 in TP-201, sir.</b></div>
+    <button class="mic" id="cmic" aria-label="Hold to talk"><span class="lvl"></span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+  </div>
+
+  <div id="confirm">
+    <div class="k">WhatsApp · from your number</div>
+    <div class="msg">To <b>Rahul</b>: <i>“Running 10 min late to lab, start without me.”</i></div>
+    <div class="btns"><button class="btn" data-act="cancel">Cancel</button><button class="btn go" data-act="send">Send</button></div>
+  </div>
+
+  <div id="panel">
+    <div class="head">
+      <div class="t"><h1>JARVIS</h1><div class="s" id="stat">Idle · fast route</div></div>
+      <button class="ib" title="Full view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+      <button class="ib" id="close" title="Collapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 15 6-6 6 6"/></svg></button>
+    </div>
+
+    <div class="glance">
+      <div class="g"><div class="l"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2"/></svg>Kattankulathur</div><div class="v">31° <small>clear</small></div></div>
+      <div class="g"><div class="l"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>Next class</div><div class="v">Physics <small>9:00</small></div></div>
+      <div class="g"><div class="l"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/></svg>Mail</div><div class="v">3 <small>important</small></div></div>
+      <div class="g"><div class="l"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg>Due soon</div><div class="v">Lab report <small>Thu</small></div></div>
+    </div>
+
+    <div class="seg" id="seg"><div class="pill"></div>
+      <button class="on" data-v="chat">Chat</button><button data-v="art">Artifacts</button><button data-v="vault">Vault</button></div>
+
+    <div class="body">
+      <div class="view on" id="v-chat">
+        <div class="recent">
+          <span class="chip on">Today</span><span class="chip">Motor rig plan</span><span class="chip">Thevenin notes</span><span class="chip">BEEE unit 5</span><span class="chip">Week plan</span>
+        </div>
+        <div class="day"><span>Today</span></div>
+        <div id="thread">
+          <div class="b me"><div class="voice"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/></svg><i></i>0:03</div>Remind me at 6 to call mom<span class="m">17:42 ✓✓</span></div>
+          <div class="b jv">I'll remind you at 18:00 today: call mom, sir.<span class="m">17:42</span></div>
+          <div class="b me">WhatsApp Rahul that I'm running late to lab<span class="m">17:44 ✓✓</span></div>
+          <div class="b jv">Sent from your number, sir.
+            <div class="wa"><div class="who">To Rahul</div>Running 10 min late to lab, start without me.</div><span class="m">17:44</span></div>
+          <div class="b me">What do my notes say about Thevenin?<span class="m">17:51 ✓✓</span></div>
+          <div class="b jv">Replace everything behind two terminals with one voltage source V<sub>th</sub> in series with R<sub>th</sub>. Your notes add the shortcut: R<sub>th</sub> is the resistance with sources zeroed.
+            <div class="src"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>BEEE_unit2.pdf · p. 14</div><span class="m">17:51</span></div>
+        </div>
+      </div>
+
+      <div class="view" id="v-art">
+        <div class="grid">
+          <div class="tile"><div class="prev"><div class="ln" style="width:60%;background:rgba(255,255,255,.3)"></div><div class="ln"></div><div class="ln" style="width:85%"></div><div class="ln" style="width:70%"></div><div class="ln" style="width:90%"></div></div><div class="cap"><div class="n">Week plan.md</div><div class="k">Document · today</div></div></div>
+          <div class="tile"><div class="prev"><svg viewBox="0 0 160 72" width="100%" height="72"><path d="M0 60 C30 55 40 20 70 26 S120 8 160 12" fill="none" stroke="#B26BFF" stroke-width="2.5"/><path d="M0 64 C40 62 60 44 90 46 S130 36 160 38" fill="none" stroke="#3FC8FF" stroke-width="2.5"/></svg></div><div class="cap"><div class="n">Buck vs boost efficiency</div><div class="k">Research · 6 sources</div></div></div>
+          <div class="tile"><div class="prev"><code><span style="color:#7ee787">+ def export_csv(rows):</span>
+<span style="color:#7ee787">+     w = csv.writer(f)</span>
+<span style="color:#7ee787">+     w.writerows(rows)</span>
+  # 3 tests pass</code></div><div class="cap"><div class="n">motor-fault: CSV export</div><div class="k">Claude Code · commit 4e1a</div></div></div>
+          <div class="tile"><div class="prev"><div class="ln" style="width:40%;background:rgba(255,255,255,.3)"></div><div class="ln" style="width:75%"></div><div class="ln" style="width:65%"></div><div class="ln" style="width:80%"></div></div><div class="cap"><div class="n">todo.md</div><div class="k">File · Desktop</div></div></div>
+        </div>
+      </div>
+
+      <div class="view" id="v-vault">
+        <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search the vault</div>
+        <div class="drop">Drop files or text on the island, or say “keep this”</div>
+        <div class="item"><div class="ic" style="background:rgba(255,196,107,.15);color:#FFC46B"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h6"/></svg></div><div><div class="n">Lab locker number 214</div><div class="k">Note · kept yesterday</div></div></div>
+        <div class="item"><div class="ic" style="background:rgba(63,200,255,.15);color:#3FC8FF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></div><div><div class="n">ESP32-S3 datasheet</div><div class="k">Link · espressif.com</div></div></div>
+        <div class="item"><div class="ic" style="background:rgba(255,94,168,.15);color:#FF5EA8"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div><div><div class="n">Resume_v3.pdf</div><div class="k">File · 212 KB</div></div></div>
+        <div class="item"><div class="ic" style="background:rgba(178,107,255,.15);color:#B26BFF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v8H4v-8M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></div><div><div class="n">Gift idea for mom: the brass lamp</div><div class="k">Note · last week</div></div></div>
+      </div>
+    </div>
+
+    <div class="bar"><div class="in">Ask JARVIS…</div>
+      <button class="mic" id="pmic" aria-label="Hold to talk"><span class="lvl"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div>
+  </div>
+</div>
+
+<div id="bub"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,138,76,.25)" stroke-width="4"/><circle id="arc" cx="18" cy="18" r="14" fill="none" stroke="#FF8A4C" stroke-width="4" stroke-linecap="round" stroke-dasharray="88" stroke-dashoffset="0"/></svg></div>
+<div id="note"><div class="ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/></svg></div><div style="min-width:0"><div class="n">Rahul</div><div class="k">No worries, we'll start. Bring the probe kit.</div></div></div>
+
+<div class="demo">
+  <h3>Try it</h3>
+  <p style="margin-bottom:10px">It floats above every app. Click the island to expand. Hover it to peek. <b>Hold the mic</b> to talk. Esc or click the desktop to collapse.</p>
+  <h3>Orb state</h3>
+  <div class="row" id="states"><button data-s="idle" class="on">Idle</button><button data-s="listening">Listening</button><button data-s="thinking">Thinking</button><button data-s="speaking">Speaking</button></div>
+  <h3>Moments</h3>
+  <div class="row"><button id="dTimer">Timer activity</button><button id="dNote">WhatsApp reply</button><button id="dConfirm">Send confirm</button><button id="dFull">Fullscreen app</button></div>
+</div>
+
+<div class="pick">
+  <h3>Panel material</h3>
+  <div class="options"><div class="option selected" data-choice="glass" onclick="toggleSelect(this);mat('glass')"><b>Tinted glass</b><span>blur + deep tint</span></div>
+    <div class="option" data-choice="black" onclick="toggleSelect(this);mat('black')"><b>Pure black</b><span>like the island</span></div></div>
+  <h3>Your bubbles</h3>
+  <div class="options"><div class="option selected" data-choice="accent-bubbles" onclick="toggleSelect(this);bub('accent')"><b>Accent</b><span>blue-violet</span></div>
+    <div class="option" data-choice="green-bubbles" onclick="toggleSelect(this);bub('green')"><b>WhatsApp</b><span>dark green</span></div></div>
+  <p style="font-size:11px;color:var(--dim);line-height:1.5">On Windows the real panel can't blur the desktop behind it; “glass” ships as a deep tint with a soft highlight.</p>
+</div>
+
+<script>
+// ---------- springs (Apple: stiffness=(2π/d)², damping=(1-bounce)·4π/d, mass 1) ----------
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const P = (d, bounce) => reduced ? { k: 900, c: 60 } : { k: (2 * Math.PI / d) ** 2, c: (1 - bounce) * 4 * Math.PI / d };
+const EXPAND = P(.5, .15), COLLAPSE = P(.42, 0), MICRO = P(.3, .1), DROP = P(.55, .3);
+class S { constructor(x) { this.x = this.t = x; this.v = 0; this.p = MICRO; }
+  to(t, p = this.p) { this.t = t; this.p = p; }
+  step(dt) { const a = -this.p.k * (this.x - this.t) - this.p.c * this.v; this.v += a * dt; this.x += this.v * dt; }
+  get done() { return Math.abs(this.x - this.t) < .05 && Math.abs(this.v) < .05; } }
+const sp = { w: new S(120), h: new S(38), r: new S(19), ox: new S(5), oy: new S(5), os: new S(28),
+  bx: new S(0), bo: new S(0), ty: new S(0), ny: new S(10), nw: new S(120), nh: new S(38), seg: new S(0), segw: new S(0) };
+
+const $ = q => document.querySelector(q);
+const shell = $("#shell"), orbEl = $("#orb"), glow = $("#glow"), rim = $("#rim");
+let mode = "idle";   // idle | peek | caption | confirm | open
+let capW = 0, timer = null, noteOn = false;
+
+function geom(m, preset) {
+  const fit = Math.max(120, Math.min(460, 98 + capW + (ostate === "listening" ? 34 : 0)));   // width follows the content
+  const g = { idle: [fit, 38, 19], peek: [Math.max(320, fit), 64, 26], caption: [fit, 38, 19],
+    confirm: [400, 122, 30], open: [440, 600, 32] }[m];
+  sp.w.to(g[0], preset); sp.h.to(g[1], preset); sp.r.to(g[2], preset);
+  const big = m === "open", mid = m === "confirm";
+  sp.ox.to(big ? 18 : mid ? 14 : 5, preset); sp.oy.to(big ? 18 : mid ? 14 : 5, preset); sp.os.to(big ? 44 : mid ? 32 : 28, preset);
+}
+function setMode(m) {
+  const opening = m === "open" || m === "confirm", wasBig = mode === "open" || mode === "confirm";
+  mode = m; document.body.classList.toggle("isopen", m === "open");
+  shell.classList.toggle("open", m === "open");
+  $("#collapsed").style.opacity = opening ? 0 : 1;
+  $("#peek").style.opacity = m === "peek" ? 1 : 0;
+  $("#confirm").classList.toggle("on", m === "confirm");
+  const panel = $("#panel");
+  panel.classList.remove("in");
+  if (m === "open") setTimeout(() => mode === "open" && panel.classList.add("in"), 80);   // shell leads, content follows
+  geom(m, opening ? EXPAND : wasBig ? COLLAPSE : MICRO);
+  $("#gPill").style.opacity = m === "open" ? 0 : 1;
+}
+
+// ---------- frame loop: springs -> transforms/geometry ----------
+let last = performance.now();
+function frame(now) {
+  let dt = Math.min(.05, (now - last) / 1000); last = now;
+  const n = Math.ceil(dt / (1 / 240)); for (let i = 0; i < n; i++) for (const s of Object.values(sp)) s.step(dt / n);
+  const w = Math.round(sp.w.x), h = Math.round(sp.h.x), r = Math.max(0, sp.r.x), L = Math.round((innerWidth - w) / 2), T = 10 + sp.ty.x;
+  for (const el of [shell, $("#gPill")]) Object.assign(el.style, { left: L + "px", top: T + "px", width: w + "px", height: h + "px", borderRadius: r + "px" });
+  Object.assign(glow.style, { left: L - 3 + "px", top: T - 3 + "px", width: w + 6 + "px", height: h + 6 + "px", borderRadius: r + 3 + "px" });
+  Object.assign(rim.style, { left: L - 1.5 + "px", top: T - 1.5 + "px", width: w + 3 + "px", height: h + 3 + "px", borderRadius: r + 1.5 + "px" });
+  Object.assign($("#comet").style, { left: L - 2.5 + "px", top: T - 2.5 + "px", width: w + 5 + "px", height: h + 5 + "px", borderRadius: r + 2.5 + "px" });
+  Object.assign($("#cometGlow").style, { left: L - 4 + "px", top: T - 4 + "px", width: w + 8 + "px", height: h + 8 + "px", borderRadius: r + 4 + "px" });
+  orbEl.style.transform = `translate(${sp.ox.x}px,${sp.oy.x}px) scale(${sp.os.x / 64 * 1.45})`;
+  orbEl.style.marginLeft = orbEl.style.marginTop = (-sp.os.x * .225) + "px";   // the canvas has bloom room around the ring
+  // split bubble: hides under the island's right edge, then pulls out
+  const bx = L + w - 19 + sp.bx.x, gb = $("#gBub");
+  Object.assign(gb.style, { left: bx + "px", top: T + "px", width: "38px", height: "38px", borderRadius: "19px", opacity: sp.bx.x > 1 && mode !== "open" ? 1 : 0 });
+  Object.assign($("#bub").style, { left: bx + "px", top: T + "px" });
+  $("#bub").style.opacity = sp.bx.x > 40 ? 1 : 0;
+  // notification drop
+  const nw = Math.round(sp.nw.x), nh = Math.round(sp.nh.x), nl = Math.round((innerWidth - nw) / 2);
+  Object.assign($("#gNote").style, { left: nl + "px", top: sp.ny.x + "px", width: nw + "px", height: nh + "px", borderRadius: Math.min(nh / 2, 24) + "px" });
+  Object.assign($("#note").style, { left: nl + "px", top: sp.ny.x + "px", width: nw + "px", height: nh + "px" });
+  // segmented control pill
+  const pill = $("#seg .pill"); pill.style.transform = `translateX(${sp.seg.x}px)`; pill.style.width = sp.segw.x + "px";
+  requestAnimationFrame(frame);
+}
+
+// ---------- orb (same look as jarvis/ui/core.js) ----------
+const PALETTE = ["#4F8BFF", "#B26BFF", "#FF5EA8", "#FF8A4C", "#FFC46B", "#FF5EA8", "#B26BFF", "#3FC8FF", "#4F8BFF"];
+const LAYERS = [[.03, 0, 1, 1], [.07, .035, .9, -.7], [.14, .08, .7, 1.35], [.24, .13, .55, -.9]];
+const MOTION = { idle: [.25, .8, 0], listening: [.6, 1, .35], thinking: [2.2, 1, .2], speaking: [.5, 1, 0] };
+const om = { spin: new S(.25), bright: new S(.8), energy: new S(0), lvl: new S(0) }; for (const s of Object.values(om)) s.p = P(1, 0);
+om.lvl.p = P(.16, .15);
+const bars = [...document.querySelectorAll("#eq i")];
+let rot = 0, ostate = "idle";
+const cv = $("#orb canvas"), cx = cv.getContext("2d"), R = 128 * .31;
+const layers = LAYERS.map(([lw, blur, alpha, turn]) => {
+  const pad = R * (lw + blur * 3), Sz = Math.ceil((R + pad) * 2), c = document.createElement("canvas"); c.width = c.height = Sz;
+  const x = c.getContext("2d"), g = x.createConicGradient(0, Sz / 2, Sz / 2);
+  PALETTE.forEach((col, i) => g.addColorStop(i / (PALETTE.length - 1), col));
+  x.filter = blur ? `blur(${(R * blur).toFixed(1)}px)` : "none"; x.strokeStyle = g; x.lineWidth = R * lw;
+  x.beginPath(); x.arc(Sz / 2, Sz / 2, R, 0, Math.PI * 2); x.stroke();
+  return { c, Sz, alpha, turn, phase: Math.random() * 6.28 };
+});
+let olast = performance.now();
+function orbFrame(now) {
+  const dt = Math.min(.05, (now - olast) / 1000); olast = now; const t = now / 1000;
+  for (const s of Object.values(om)) s.step(dt);
+  if (ostate === "speaking" && !reduced && Math.random() < dt * 5) om.energy.to(.35 + Math.random() * .65, P(.22, .2));
+  // listening: the orb and the meter follow your voice (the real app feeds the mic level here)
+  if (ostate === "listening" && !reduced && Math.random() < dt * 10) om.lvl.to(Math.random() ** 1.5);
+  bars.forEach((b, i) => b.style.transform = `scaleY(${ostate === "listening"
+    ? .18 + .82 * Math.min(1, (.35 + om.lvl.x) * Math.abs(Math.sin(t * 7 + i * 1.25))) : .18})`);
+  rot += om.spin.x * dt;
+  cx.clearRect(0, 0, 128, 128);
+  const g = cx.createRadialGradient(64, 64, R * .1, 64, 64, R);
+  g.addColorStop(0, "rgba(163,116,245,0)"); g.addColorStop(1, `rgba(163,116,245,${.1 * om.bright.x})`);
+  cx.fillStyle = g; cx.beginPath(); cx.arc(64, 64, R, 0, 7); cx.fill();
+  layers.forEach((Ly, i) => {
+    cx.globalCompositeOperation = i > 1 ? "lighter" : "source-over";
+    const breathe = reduced ? 1 : .85 + .15 * Math.sin(t * .8 + Ly.phase), e = Math.max(0, om.energy.x);
+    cx.globalAlpha = Math.min(1, Ly.alpha * om.bright.x * breathe * (1 + e * .6 * i / 3));
+    const s = 1 + e * .04 * i / 3;
+    cx.save(); cx.translate(64, 64); cx.rotate(rot * Ly.turn + Ly.phase); cx.scale(s, s); cx.drawImage(Ly.c, -Ly.Sz / 2, -Ly.Sz / 2); cx.restore();
+  });
+  cx.globalAlpha = 1; cx.globalCompositeOperation = "source-over";
+  requestAnimationFrame(orbFrame);
+}
+function orbState(s) {
+  ostate = s; const [spin, bright, energy] = MOTION[s];
+  om.spin.to(reduced ? spin * .2 : spin); om.bright.to(bright); om.energy.to(energy, P(.6, 0));
+  glow.style.opacity = s === "speaking" ? .75 : 0; rim.style.opacity = s === "speaking" ? 1 : 0;
+  document.querySelectorAll("#states button").forEach(b => b.classList.toggle("on", b.dataset.s === s));
+  $("#stat").textContent = { idle: "Idle · fast route", listening: "Listening…", thinking: "Thinking…", speaking: "Speaking" }[s];
+  document.body.className = document.body.className.replace(/\s*st-\w+/g, "") + " st-" + s;
+  if (s !== "listening") om.lvl.to(0);
+  if (s === "listening") midLabel('<span class="lbl">Listening</span>', "Listening");
+  else if (s === "thinking") midLabel('<span class="shim">Thinking</span>', "Thinking");
+  else if (s === "speaking") midLabel('<span class="lbl">Speaking</span>', "Speaking");
+  else { if (mode === "caption") setMode("idle"); ticker(true); }
+}
+// the middle of the island: a short label, its width measured so the island fits it
+function midLabel(html, text, extra = 6) {
+  $("#mid").innerHTML = html; meas.textContent = text; capW = meas.offsetWidth + extra;
+  if (mode === "idle" || mode === "caption" || mode === "peek") geom(mode, MICRO);
+}
+// idle: a quiet ticker of what's next, so the island is never empty
+const ICON = {
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2"/></svg>',
+  cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/></svg>' };
+const TICK = [["cal", "Physics 9:00", "TP-201"], ["sun", "31°", "Clear"], ["check", "Lab report", "due Thu"], ["mail", "3 important", "emails"]];
+let ti = 0;
+function ticker(now) {
+  if (ostate !== "idle" || timer || talking || !(mode === "idle" || mode === "peek")) return;
+  if (!now) ti++;
+  const [ic, a, b] = TICK[ti % TICK.length];
+  midLabel(`<span class="tk">${ICON[ic]}${a} <span class="d">${b}</span></span>`, a + " " + b, 26);
+}
+setInterval(ticker, 4500);
+
+// ---------- captions: words blur in, island width follows the text ----------
+const meas = Object.assign(document.createElement("span"), { style: "position:absolute;visibility:hidden;font:500 13px Inter,system-ui;white-space:nowrap" });
+document.body.append(meas);
+function caption(words, ms = 200) {
+  const mid = $("#mid"); mid.innerHTML = ""; let i = 0;
+  return new Promise(res => {
+    const tick = () => {
+      if (i >= words.length) return res();
+      const w = document.createElement("span"); w.className = "w"; w.textContent = words[i++]; mid.append(w);
+      meas.textContent = mid.textContent.replace(/\s+/g, " ") + " ".repeat(i); capW = meas.offsetWidth + i * 3.6;
+      if (mode !== "open" && mode !== "confirm") { if (mode !== "caption") setMode("caption"); else geom("caption", MICRO); }
+      setTimeout(tick, ms);
+    }; tick();
+  });
+}
+function clearCaption() { $("#mid").innerHTML = ""; if (mode === "caption") setMode("idle"); ticker(true); }
+
+// ---------- talk: hold the mic ----------
+let talking = false;
+async function talk(btn) {
+  if (talking) return; talking = true; btn.classList.add("hot"); orbState("listening");
+  const lv = setInterval(() => btn.style.setProperty("--l", 1 + Math.random() * .35), 90);
+  const heard = "Remind me at nine to bring the probe kit";
+  const capP = wait(700).then(() => caption(heard.split(" "), 190));   // the meter shows first, then your words
+  await new Promise(r => { const up = () => { removeEventListener("pointerup", up); r(); }; addEventListener("pointerup", up); });
+  await capP; clearInterval(lv); btn.classList.remove("hot");
+  if (mode === "open") addBubble("me", heard);
+  orbState("thinking"); await wait(1600);
+  orbState("speaking");
+  const said = "Done, sir. I'll remind you at nine.";
+  if (mode === "open") addBubble("jv", said);
+  await caption(said.split(" "), 170); await wait(1300);
+  orbState("idle"); clearCaption(); talking = false;
+}
+function addBubble(who, text) {
+  const d = document.createElement("div"); d.className = "b " + who;
+  const now = new Date(), tm = now.getHours() + ":" + String(now.getMinutes()).padStart(2, "0");
+  d.innerHTML = (who === "me" ? '<div class="voice">🎙 voice</div>' : "") + text + `<span class="m">${tm}${who === "me" ? " ✓✓" : ""}</span>`;
+  $("#thread").append(d); const v = $("#v-chat"); v.scrollTo({ top: v.scrollHeight, behavior: "smooth" });
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+for (const id of ["#cmic", "#pmic"]) $(id).addEventListener("pointerdown", e => { e.stopPropagation(); talk(e.currentTarget); });
+for (const id of ["#cmic", "#pmic"]) $(id).addEventListener("click", e => e.stopPropagation());
+
+// ---------- expand / collapse / peek ----------
+let peekT;
+shell.addEventListener("click", e => { if (mode !== "open" && mode !== "confirm" && !talking) setMode("open"); });
+shell.addEventListener("pointerenter", () => { if (mode === "idle") peekT = setTimeout(() => mode === "idle" && setMode("peek"), 120); });
+shell.addEventListener("pointerleave", () => { clearTimeout(peekT); if (mode === "peek") setMode("idle"); });
+shell.addEventListener("pointerdown", e => { if (mode === "idle" || mode === "peek") { sp.w.v -= 60; sp.h.v -= 25; } });   // a little squish
+$("#close").addEventListener("click", e => { e.stopPropagation(); setMode("idle"); });
+document.querySelector(".wall").addEventListener("click", () => mode === "open" && setMode("idle"));
+addEventListener("keydown", e => e.key === "Escape" && (mode === "open" || mode === "confirm") && setMode("idle"));
+
+// ---------- tabs ----------
+function seg(btn, instant) {
+  const segEl = $("#seg"), bx = btn.offsetLeft, bw = btn.offsetWidth;
+  sp.seg.to(bx, MICRO); sp.segw.to(bw, MICRO); if (instant) { sp.seg.x = bx; sp.segw.x = bw; }
+  segEl.querySelectorAll("button").forEach(b => b.classList.toggle("on", b === btn));
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + btn.dataset.v));
+}
+$("#seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) seg(b); });
+
+// ---------- moments ----------
+$("#dTimer").onclick = () => {
+  if (timer) { clearInterval(timer); timer = null; sp.bx.to(0, COLLAPSE); $("#dTimer").classList.remove("on"); return; }
+  if (mode === "open") setMode("idle");
+  $("#dTimer").classList.add("on"); sp.bx.to(50, DROP);
+  let left = 300; const arc = $("#arc");
+  timer = setInterval(() => { left--; arc.style.strokeDashoffset = 88 * (1 - left / 300);
+    if (mode === "idle" || mode === "caption") { $("#mid").textContent = `Timer  ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`; capW = 92; if (mode !== "caption") setMode("caption"); }
+    if (left <= 0) $("#dTimer").click(); }, 1000);
+};
+$("#dNote").onclick = () => {
+  if (noteOn || mode === "open") return; noteOn = true;
+  sp.nw.to(330, DROP); sp.nh.to(60, DROP); sp.ny.to(60, DROP);
+  setTimeout(() => $("#note").style.opacity = 1, 420);
+  setTimeout(() => { $("#note").style.opacity = 0; }, 3600);
+  setTimeout(() => { sp.nw.to(120, COLLAPSE); sp.nh.to(38, COLLAPSE); sp.ny.to(10, COLLAPSE); }, 3750);
+  setTimeout(() => noteOn = false, 4500);
+};
+$("#dConfirm").onclick = () => { orbState("idle"); setMode("confirm"); };
+$("#confirm").addEventListener("click", async e => {
+  const a = e.target.closest("[data-act]"); if (!a) return; e.stopPropagation();
+  setMode("idle");
+  if (a.dataset.act === "send") { await wait(450); capW = 60; $("#mid").innerHTML = '<span class="w" style="color:#25D366">✓ Sent</span>'; setMode("caption"); await wait(1500); clearCaption(); }
+});
+document.querySelectorAll("#states button").forEach(b => b.onclick = () => orbState(b.dataset.s));
+// fullscreen app: the island tucks up out of sight; "Hey Jarvis" brings it back listening
+let tucked = false;
+$("#dFull").onclick = async () => {
+  tucked = !tucked; const btn = $("#dFull");
+  if (tucked) { if (mode !== "idle") setMode("idle"); sp.ty.to(-80, COLLAPSE); btn.textContent = "Say “Hey Jarvis”"; btn.classList.add("on"); return; }
+  btn.textContent = "Fullscreen app"; btn.classList.remove("on");
+  orbState("listening"); sp.ty.to(0, DROP); await wait(1800); if (!talking) orbState("idle");
+};
+function mat(m) { document.body.classList.toggle("black", m === "black"); }
+function bub(m) { document.body.classList.toggle("green", m === "green"); }
+
+// waveform bars in the voice tag
+document.querySelectorAll(".voice i").forEach(i => { for (let k = 0; k < 14; k++) { const b = document.createElement("b"); b.style.height = 3 + Math.round(Math.abs(Math.sin(k * 1.7)) * 9) + "px"; i.append(b); } });
+
+setMode("idle"); orbState("idle");
+requestAnimationFrame(t => { last = olast = t; frame(t); orbFrame(t); });
+document.fonts?.ready.then(() => seg($("#seg button.on"), true));
+setTimeout(() => seg($("#seg button.on"), true), 50);
+</script>
+</body>
+</html>
