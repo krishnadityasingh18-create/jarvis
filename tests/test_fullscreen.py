@@ -1,4 +1,4 @@
-﻿from jarvis import fullscreen
+from jarvis import fullscreen
 
 
 def test_busy_d3d_and_presentation_count_as_fullscreen():

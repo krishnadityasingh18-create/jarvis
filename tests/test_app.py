@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import time
 
 from fastapi.testclient import TestClient
@@ -406,14 +406,9 @@ def test_screenshot_puts_the_window_back_even_if_the_grab_fails(monkeypatch):
     assert r["type"] == "banner" and log == [app_mod.SW_HIDE, app_mod.SW_SHOW, "bring"]
 
 
-def connect_all(client):   # connect() already checks vault, artifacts and glance arrive
-    ws, w = connect(client)
-    return ws, w, None
-
-
 def test_open_item_unknown_id_says_moved_or_deleted(cfg, conn):
     with TestClient(create_app(cfg, conn)) as client:
-        ctx, ws, _ = connect_all(client)
+        ctx, ws = connect(client)
         ws.send_json({"type": "open_item", "kind": "artifact", "id": 999})
         seen = recv_until(ws, lambda m: m["type"] == "banner")
         ctx.__exit__(None, None, None)
@@ -428,7 +423,7 @@ def test_open_item_opens_a_vault_file_by_id_not_by_path(cfg, conn, tmp_path, mon
     opened = []
     monkeypatch.setattr("os.startfile", opened.append, raising=False)
     with TestClient(create_app(cfg, conn)) as client:
-        ctx, ws, _ = connect_all(client)
+        ctx, ws = connect(client)
         ws.send_json({"type": "open_item", "kind": "vault", "id": 1, "path": "C:/evil.exe"})
         ws.send_json({"type": "full_view"})   # the banner it answers with proves the open ran first
         recv_until(ws, lambda m: m["type"] == "banner")
@@ -438,7 +433,7 @@ def test_open_item_opens_a_vault_file_by_id_not_by_path(cfg, conn, tmp_path, mon
 
 def test_keep_text_from_the_island_lands_in_the_vault(cfg, conn):
     with TestClient(create_app(cfg, conn)) as client:
-        ctx, ws, _ = connect_all(client)
+        ctx, ws = connect(client)
         ws.send_json({"type": "keep", "text": "locker 214"})
         seen = recv_until(ws, lambda m: m["type"] == "vault")
         ctx.__exit__(None, None, None)
@@ -449,7 +444,7 @@ def test_remove_vault_item_and_full_view_default(cfg, conn):
     conn.execute("INSERT INTO vault(ts, kind, title, text, path, url, sha) "
                  "VALUES('t','note','n','n','','','s')")
     with TestClient(create_app(cfg, conn)) as client:
-        ctx, ws, _ = connect_all(client)
+        ctx, ws = connect(client)
         ws.send_json({"type": "remove_vault", "id": 1})
         seen = recv_until(ws, lambda m: m["type"] == "vault")
         ws.send_json({"type": "full_view"})
@@ -466,10 +461,80 @@ def test_island_page_served(cfg, conn, tmp_path, monkeypatch):
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
 
 
-
 def test_fullscreen_state_reaches_the_island(cfg, conn, monkeypatch):
     monkeypatch.setattr("jarvis.fullscreen._query", lambda: 3)
     with TestClient(create_app(cfg, conn)) as client, client.websocket_connect("/ws") as ws:
         # sent when the watcher notices, or on connect if it noticed first
         seen = recv_until(ws, lambda m: m["type"] == "fullscreen")
     assert seen[-1] == {"type": "fullscreen", "on": True}
+
+
+def test_sync_full_view_runs_off_the_event_loop(cfg, conn):
+    import asyncio
+    on_loop = []
+
+    def open_view():
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(True)
+        except RuntimeError:
+            on_loop.append(False)
+
+    app = create_app(cfg, conn)
+    app.state.hub.open_full_view = open_view
+    with TestClient(app) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "full_view"})
+        ws.send_json({"type": "open_item", "kind": "artifact", "id": 1})
+        recv_until(ws, lambda m: m["type"] == "banner")   # answered after full_view was handled
+        ctx.__exit__(None, None, None)
+    assert on_loop == [False]
+
+
+def test_open_item_for_an_artifact_whose_file_is_gone(cfg, conn, tmp_path):
+    from jarvis import db
+    aid = db.log_action(conn, "create_file", {"path": str(tmp_path / "gone.md")}, "Created",
+                        "done", None, None)
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "open_item", "kind": "artifact", "id": aid})
+        seen = recv_until(ws, lambda m: m["type"] == "banner")
+        ctx.__exit__(None, None, None)
+    assert "moved or deleted" in seen[-1]["text"]
+
+
+def test_open_item_ignores_non_http_links(cfg, conn, monkeypatch):
+    conn.execute("INSERT INTO vault(ts, kind, title, text, path, url, sha) "
+                 "VALUES('t','link','l','','','file:///C:/Windows/notepad.exe','s')")
+    opened = []
+    monkeypatch.setattr("webbrowser.open", opened.append)
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "open_item", "kind": "vault", "id": 1})
+        recv_until(ws, lambda m: m["type"] == "banner")
+        ctx.__exit__(None, None, None)
+    assert opened == []
+
+
+def test_keep_with_data_saves_the_file_and_prefers_it_over_text(cfg, conn, tmp_path, monkeypatch):
+    import base64
+    monkeypatch.setattr("jarvis.app.UPLOADS", tmp_path)
+    cfg.file_roots, cfg.app_dir = [tmp_path], tmp_path / "app"
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "keep", "name": "n.txt", "text": "ignored",
+                      "data": base64.b64encode(b"hello").decode()})
+        seen = recv_until(ws, lambda m: m["type"] == "vault")
+        ctx.__exit__(None, None, None)
+    [item] = seen[-1]["items"]
+    assert item["kind"] == "file" and item["title"] == "n.txt"
+    assert (tmp_path / "n.txt").read_bytes() == b"hello"
+
+
+def test_keep_with_nothing_says_so(cfg, conn):
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "keep"})
+        seen = recv_until(ws, lambda m: m["type"] == "banner")
+        ctx.__exit__(None, None, None)
+    assert seen[-1]["text"] == "Nothing to keep"

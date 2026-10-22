@@ -23,6 +23,7 @@ def no_weather_network(monkeypatch):
     """The island's glance asks for the weather; tests never reach the network."""
     from jarvis.tools import briefing
     monkeypatch.setattr(briefing, "weather_short", lambda cfg: ("31°", "Clear"))
+    monkeypatch.setattr("jarvis.artifacts._weather_cache", {})   # each test asks afresh
 
 
 @pytest.fixture(autouse=True)

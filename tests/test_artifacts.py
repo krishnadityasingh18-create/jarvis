@@ -70,3 +70,41 @@ def test_weather_short(cfg, monkeypatch):
     monkeypatch.setattr(briefing, "_weather_json", lambda cfg: {
         "temperature_2m_max": [33.4], "weather_code": [61]})
     assert real_weather_short(cfg) == ("33°", "Light rain")
+
+
+def test_items_reads_only_a_short_preview_and_only_for_rows_that_make_the_cut(cfg, conn, tmp_path, monkeypatch):
+    big = tmp_path / "big.md"
+    big.write_text("x" * 5000)
+    for name in ("a.md", "b.md"):
+        (tmp_path / name).write_text(name)
+        db.log_action(conn, "create_file", {"path": str(tmp_path / name)}, "ok", "done", None, None)
+    db.log_action(conn, "create_file", {"path": str(big)}, "ok", "done", None, None)
+    read = []
+    real = artifacts._preview
+    monkeypatch.setattr(artifacts, "_preview", lambda p: read.append(p.name) or real(p))
+    out = artifacts.items(conn, n=2)
+    assert [i["title"] for i in out] == ["big.md", "b.md"] and len(out[0]["preview"]) == 300
+    assert sorted(read) == ["b.md", "big.md"]
+
+
+def test_get_returns_one_artifact_without_preview_and_rejects_other_actions(cfg, conn, tmp_path):
+    f = tmp_path / "a.md"
+    f.write_text("hi")
+    aid = db.log_action(conn, "create_file", {"path": str(f)}, "ok", "done", None, None)
+    other = db.log_action(conn, "remind", {}, "ok", "done", None, None)
+    assert artifacts.get(conn, aid)["exists"] is True and "preview" not in artifacts.get(conn, aid)
+    assert artifacts.get(conn, other) is None and artifacts.get(conn, 999) is None
+
+
+def test_commit_with_a_bare_project_name_does_not_exist(cfg, conn):
+    db.log_action(conn, "ask_claude", {"task": "x", "project": "."}, "Commits in x:\nabc msg",
+                  "done", None, None)
+    assert artifacts.items(conn)[0]["exists"] is False
+
+
+def test_glance_asks_for_the_weather_once_per_ttl(cfg, conn, monkeypatch):
+    calls = []
+    monkeypatch.setattr(briefing, "weather_short", lambda cfg: calls.append(1) or ("1°", "x"))
+    artifacts.glance(cfg, conn)
+    artifacts.glance(cfg, conn)
+    assert len(calls) == 1

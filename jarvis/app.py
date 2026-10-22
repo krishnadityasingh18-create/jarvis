@@ -9,6 +9,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, time, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -35,7 +36,7 @@ VAULT_TOOLS = {"keep", "remove_from_vault"}
 DAY_TOOLS = {"remind", "cancel_reminder", "add_task", "complete_task", "add_class", "remove_class"}
 GLANCE_EVERY_S = 15 * 60
 
-VOICE_WAIT_S = 20    # the voice loop listens 8 s and always reports back; this is a backstop
+VOICE_WAIT_S = 20     # the voice loop listens 8 s and always reports back; this is a backstop
 BUTTON_WAIT_S = 60    # no mic: wait this long for a click
 
 
@@ -55,7 +56,7 @@ class Hub:
         self.pending: dict[str, asyncio.Future] = {}   # open confirmation questions
         self.tasks: set[asyncio.Task] = set()          # island requests that may wait on a yes
         self.fullscreen = False
-        self.open_full_view = self._no_full_view     # __main__ replaces it with the Edge HUD
+        self.open_full_view = self._no_full_view  # __main__ replaces it with the Edge HUD
 
     async def _no_full_view(self) -> None:
         await self.broadcast({"type": "banner", "text": "Full view isn't available"})
@@ -81,35 +82,50 @@ class Hub:
         return await tools.run(ctx, {"id": "island", "name": name, "arguments": json.dumps(args)})
 
     async def keep(self, m: dict) -> None:
-        text, path = str(m.get("text") or ""), ""
-        if m.get("data"):
+        if m.get("data"):   # a dropped file wins over text
             up = await asyncio.to_thread(save_upload, str(m.get("name", "")), str(m["data"]))
             if up["type"] != "uploaded":
                 await self.broadcast(up)
                 return
-            path = up["path"]
-        if text or path:
-            await self.desk_run("keep", **({"text": text} if text else {"path": path}))
+            await self.desk_run("keep", path=up["path"])
+        elif m.get("text"):
+            await self.desk_run("keep", text=str(m["text"]))
+        else:
+            await self.broadcast({"type": "banner", "text": "Nothing to keep"})
 
     async def open_item(self, kind: str, item_id) -> None:
         """Open a vault or artifact item by id; the path always comes from our own records."""
-        pool = vault.items(self.conn) if kind == "vault" else \
-            artifacts.items(self.conn, n=10_000) if kind == "artifact" else []
-        it = next((i for i in pool if i["id"] == item_id), None)
+        if kind == "vault":
+            it = next((i for i in vault.items(self.conn) if i["id"] == item_id), None)
+        elif kind == "artifact":
+            it = await asyncio.to_thread(artifacts.get, self.conn, item_id)
+        else:
+            it = None
+        path = (it or {}).get("path") or ""
         if it and it.get("url"):
-            await asyncio.to_thread(webbrowser.open, it["url"])
-        elif it and it.get("path") and Path(it["path"]).exists():
-            if _runs_code(Path(it["path"]).name):
+            if urlparse(it["url"]).scheme in ("http", "https"):
+                await asyncio.to_thread(webbrowser.open, it["url"])
+                return
+        elif path and Path(path).is_absolute() and Path(path).exists():
+            if _runs_code(Path(path).name):
                 await self.broadcast({"type": "banner", "text": "I don't open programs or scripts"})
             else:
-                await asyncio.to_thread(os.startfile, it["path"])
-        else:
-            await self.broadcast({"type": "banner", "text": "That item was moved or deleted"})
+                await asyncio.to_thread(os.startfile, path)
+            return
+        await self.broadcast({"type": "banner", "text": "That item was moved or deleted"})
+
+    async def send_glance(self, sock: WebSocket | None = None) -> None:
+        """The glance may wait on the weather: always run it beside the caller."""
+        msg = await asyncio.to_thread(self.glance)
+        try:
+            await (sock.send_json(msg) if sock else self.broadcast(msg))
+        except Exception:
+            self.sockets.discard(sock)   # that window went away
 
     async def send_island_data(self, sock: WebSocket) -> None:
         await sock.send_json(self.vault())
-        await sock.send_json(self.artifacts())
-        await sock.send_json(await asyncio.to_thread(self.glance))
+        await sock.send_json(await asyncio.to_thread(self.artifacts))
+        self.spawn(self.send_glance(sock))
         if self.fullscreen:
             await sock.send_json({"type": "fullscreen", "on": True})
 
@@ -160,12 +176,12 @@ class Hub:
         if msg["type"] == "turn_end":
             await self.broadcast(self.usage())
             await self.broadcast(self.chats())
-            await self.broadcast(self.artifacts())
+            await self.broadcast(await asyncio.to_thread(self.artifacts))
         elif msg["type"] == "action":   # also fires for an undo of the same tool
             if msg["tool"] in VAULT_TOOLS:
                 await self.broadcast(self.vault())
             elif msg["tool"] in DAY_TOOLS:
-                await self.broadcast(await asyncio.to_thread(self.glance))
+                self.spawn(self.send_glance())
 
     async def confirm(self, text: str) -> bool:
         """Ask the user; resolved by a button, a spoken yes/no, a timeout or a cancel (no)."""
@@ -258,7 +274,7 @@ class Hub:
                     await self.tick(datetime.now())
                 if clock_time.monotonic() - last_glance >= GLANCE_EVERY_S:
                     last_glance = clock_time.monotonic()
-                    await self.broadcast(await asyncio.to_thread(self.glance))
+                    self.spawn(self.send_glance())
             except Exception as e:   # a bad row must not stop reminders for good
                 await self.broadcast({"type": "banner", "text": f"Scheduler error: {e}"})
             await asyncio.sleep(30)
@@ -419,7 +435,7 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     async def island():
         return FileResponse(UI / "island.html")
 
-    app.mount("/ui",StaticFiles(directory=UI), name="ui")
+    app.mount("/ui", StaticFiles(directory=UI), name="ui")
 
     @app.websocket("/ws")
     async def ws(sock: WebSocket):
@@ -467,8 +483,10 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                 elif m.get("type") == "remove_vault" and isinstance(m.get("id"), int):
                     hub.spawn(hub.desk_run("remove_from_vault", id=m["id"]))
                 elif m.get("type") == "full_view":
-                    if inspect.isawaitable(r := hub.open_full_view()):
-                        await r
+                    if inspect.iscoroutinefunction(hub.open_full_view):
+                        await hub.open_full_view()
+                    else:   # a plain function (e.g. launching Edge) must not block the loop
+                        await asyncio.to_thread(hub.open_full_view)
                 elif m.get("type") == "upload":
                     await sock.send_json(save_upload(str(m.get("name", "")),
                                                      str(m.get("data", ""))))
