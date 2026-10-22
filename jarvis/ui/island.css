@@ -1,0 +1,139 @@
+/* The island: a floating black pill 10 px from the top of a transparent, click-through window.
+   Ported from docs/superpowers/specs/assets/2026-10-23-island-mockup.html (the approved look).
+   Only #shell changes size; everything inside it is laid out at its final size and clipped. */
+@property --a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@property --c { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+:root {
+  --ink: #f5f5f7; --dim: rgba(235,235,245,.6); --faint: rgba(235,235,245,.32);
+  --line: rgba(255,255,255,.08); --accent: #A374F5;
+  --me: linear-gradient(135deg, #5b7cff 0%, #9a6bff 100%);
+  /* a transparent frameless window can't blur the desktop behind it: deep tint instead */
+  --glass: rgba(20,20,26,.9);
+  --spectrum: #4F8BFF, #B26BFF, #FF5EA8, #FF8A4C, #FFC46B, #FF5EA8, #B26BFF, #3FC8FF, #4F8BFF;
+  --font: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; background: transparent; }
+body { font: 14px/1.4 var(--font); color: var(--ink); overflow: hidden; -webkit-font-smoothing: antialiased;
+  user-select: none; }
+button, input { font: inherit; color: inherit; }
+
+/* ---------- island ---------- */
+#goo { position: fixed; inset: 0; filter: url(#gooey); pointer-events: none; display: none; }
+#goo > div { position: absolute; background: #000; contain: strict; }
+#glow, #rim, #comet, #cometGlow { position: fixed; left: 0; top: 0; pointer-events: none; opacity: 0; contain: strict; }
+#glow { transition: opacity .5s ease; background: conic-gradient(from var(--a), var(--spectrum)); filter: blur(9px);
+  animation: spin 3.2s linear infinite; }
+#rim { transition: opacity .4s ease; background: conic-gradient(from var(--a), var(--spectrum)); animation: spin 3.2s linear infinite; }
+@keyframes spin { to { --a: 360deg; } }
+body.st-speaking #glow { opacity: .75; }
+body.st-speaking #rim { opacity: 1; }
+body.isopen #rim { opacity: 0; }
+
+#shell { position: fixed; left: 0; top: 10px; width: 120px; height: 38px; border-radius: 19px; overflow: hidden;
+  cursor: pointer; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,.35); contain: layout paint;
+  transition: background-color .35s ease, box-shadow .45s ease, border-color .35s ease; border: 1px solid transparent; }
+#shell.open { cursor: default; background: var(--glass); border-color: var(--line);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 40px 90px rgba(0,0,0,.55), 0 0 0 .5px rgba(0,0,0,.6); }
+#shell.drag { box-shadow: 0 0 0 2px rgba(163,116,245,.8), 0 10px 30px rgba(0,0,0,.35); }
+
+#orb { position: absolute; left: 0; top: 0; width: 64px; height: 64px; transform-origin: 0 0; pointer-events: none;
+  will-change: transform; }
+#orb canvas { width: 64px; height: 64px; display: block; transition: filter .7s ease, opacity .7s ease; }
+body.st-off #orb canvas { opacity: .55; }
+
+#eq { position: absolute; right: 40px; top: 0; height: 36px; display: flex; gap: 2.5px; align-items: center; opacity: 0; transition: opacity .25s; }
+#eq i { width: 3px; height: 18px; border-radius: 2px; background: linear-gradient(#9be7ff, #4F8BFF); transform: scaleY(.2); }
+body.st-listening #eq { opacity: 1; }
+body.st-listening #mid { right: 78px; }
+.shim { background: linear-gradient(90deg, rgba(255,255,255,.35) 0%, #fff 42%, #FFC46B 50%, #fff 58%, rgba(255,255,255,.35) 100%);
+  background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shim 1.5s linear infinite; }
+@keyframes shim { from { background-position: 110% 0; } to { background-position: -110% 0; } }
+/* thinking: a comet of light circles the island edge, round and round until the answer starts */
+#comet, #cometGlow { transition: opacity .45s ease;
+  background: conic-gradient(from var(--c), transparent 0deg 220deg, rgba(255,196,107,.4) 280deg, #FFC46B 330deg, #FF5EA8 350deg, #fff 357deg, transparent 360deg);
+  animation: comet 1.6s linear infinite; }
+#cometGlow { filter: blur(8px); }
+body.st-thinking #comet, body.st-thinking #cometGlow { opacity: 1; }
+body.st-thinking.isopen #comet, body.st-thinking.isopen #cometGlow { opacity: 0; }
+@keyframes comet { to { --c: 360deg; } }
+.tk { display: inline-flex; align-items: center; gap: 6px; animation: wordIn .5s cubic-bezier(.2,.8,.2,1) both;
+  font-variant-numeric: tabular-nums; }
+.tk svg { width: 13px; height: 13px; opacity: .75; flex: none; }
+.tk .d { color: var(--dim); font-weight: 400; }
+.lbl { color: var(--dim); animation: wordIn .4s cubic-bezier(.2,.8,.2,1) both; }
+.ok { color: #25D366; animation: wordIn .4s cubic-bezier(.2,.8,.2,1) both; }
+
+.mic { position: absolute; width: 28px; height: 28px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: rgba(255,255,255,.1); color: var(--ink); cursor: pointer; touch-action: none;
+  transition: background .2s, opacity .2s, transform .25s cubic-bezier(.3,1.6,.5,1); }
+.mic:hover { background: rgba(255,255,255,.18); }
+.mic:active, .mic.hot { transform: scale(.9); }
+.mic.hot { background: #fff; color: #000; }
+.mic.off { opacity: .45; }
+.mic svg { width: 14px; height: 14px; }
+.mic .lvl { position: absolute; inset: -3px; border-radius: 50%; border: 2px solid rgba(255,255,255,.55);
+  opacity: 0; transform: scale(var(--l, 1)); transition: opacity .2s; }
+.mic.hot .lvl { opacity: 1; }
+#cmic { right: 4px; top: 4px; }
+
+#mid { position: absolute; left: 44px; right: 44px; top: 0; height: 36px; display: flex; align-items: center;
+  white-space: nowrap; overflow: hidden; font-size: 13px; font-weight: 500; letter-spacing: -.01em;
+  mask-image: linear-gradient(90deg, #000 85%, transparent); transition: opacity .2s; }
+#mid.sc { mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+#mid > span { display: inline-block; white-space: nowrap; flex: none; transition: transform .35s cubic-bezier(.2,.8,.2,1); }
+#mid .w { display: inline-block; opacity: 0; filter: blur(6px); transform: translateY(3px);
+  animation: wordIn .38s cubic-bezier(.2,.8,.2,1) forwards; margin-right: .28em; }
+@keyframes wordIn { to { opacity: 1; filter: none; transform: none; } }
+#peek { position: absolute; left: 14px; right: 14px; top: 38px; font-size: 12px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .2s; }
+#peek b { color: var(--ink); font-weight: 500; }
+#collapsed { position: absolute; inset: 0; transition: opacity .16s ease; }
+
+/* confirm card (the island grows to a mid size) */
+#confirm { position: absolute; left: 50%; top: 0; width: 380px; transform: translateX(-50%); padding: 14px 18px 14px 56px;
+  opacity: 0; pointer-events: none; transition: opacity .2s ease .08s; cursor: default; }
+#confirm.on { opacity: 1; pointer-events: auto; }
+#confirm .k { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+#confirm .msg { margin: 4px 0 12px; font-size: 13.5px; user-select: text; overflow-wrap: anywhere; }
+#confirm .msg i { color: var(--dim); font-style: normal; }
+.btns { display: flex; gap: 8px; }
+.btn { flex: 1; height: 32px; border-radius: 16px; border: 0; font: 600 13px var(--font); cursor: pointer;
+  background: rgba(255,255,255,.1); color: var(--ink); transition: transform .25s cubic-bezier(.3,1.6,.5,1), background .2s; }
+.btn:hover { background: rgba(255,255,255,.16); }
+.btn:active { transform: scale(.95); }
+.btn.go { background: var(--accent); color: #fff; }
+.btn.go:hover { background: #b38bf7; }
+.btn.go.wa { background: #25D366; color: #04210f; }
+.btn.go.wa:hover { background: #3be07a; }
+.btn:focus-visible, .mic:focus-visible { outline: 2px solid rgba(255,255,255,.7); outline-offset: 2px; }
+
+/* split bubble + notification overlays (positioned by transform from island.js) */
+#bub { position: fixed; left: 0; top: 0; width: 38px; height: 38px; display: grid; place-items: center; opacity: 0;
+  transition: opacity .2s; pointer-events: none; --ring: #FF8A4C; }
+#bub.wa { --ring: #25D366; } #bub.bell { --ring: #FFC46B; }
+#bub svg { width: 26px; height: 26px; transform: rotate(-90deg); }
+#bub .track { stroke: color-mix(in srgb, var(--ring) 25%, transparent); }
+#bub #arc { stroke: var(--ring); }
+#bub.spin svg { animation: ring 1.1s linear infinite; }
+#bub.spin #arc { stroke-dashoffset: 62; }
+@keyframes ring { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+#note { position: fixed; left: 0; top: 0; width: 330px; height: 60px; display: flex; gap: 10px; align-items: center; padding: 0 14px;
+  opacity: 0; transition: opacity .2s; pointer-events: none; }
+#note .ic { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; flex: none; color: #fff; }
+#note.whatsapp .ic { background: #25D366; color: #04210f; }
+#note.reminder .ic { background: #FFC46B; color: #2a1a00; }
+#note .ic svg { width: 18px; height: 18px; }
+#note .n { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#note .k { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Windows "reduce animations": no loops; words and labels simply appear */
+@media (prefers-reduced-motion: reduce) {
+  #glow, #rim, .shim { animation: none; }
+  #comet, #cometGlow { display: none; }
+  .shim { color: #FFC46B; background: none; }
+  #mid .w, .tk, .lbl, .ok { animation: none; opacity: 1; filter: none; transform: none; }
+  #bub.spin svg { animation-duration: 4s; }
+  #mid > span { transition: none; }
+}

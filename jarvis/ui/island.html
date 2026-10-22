@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Island</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/ui/island.css">
+</head>
+<body class="st-off">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="gooey"><feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b"/>
+    <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter>
+</svg>
+
+<div id="goo"><div id="gPill"></div><div id="gBub"></div><div id="gNote"></div></div>
+<div id="glow"></div><div id="rim"></div><div id="cometGlow"></div><div id="comet"></div>
+
+<div id="shell" role="button" aria-label="JARVIS">
+  <div id="orb"><canvas></canvas></div>
+
+  <div id="collapsed">
+    <div id="mid" aria-live="polite"></div>
+    <div id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="peek"></div>
+    <button class="mic" id="cmic" type="button" aria-label="Hold to talk"><span class="lvl"></span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+  </div>
+
+  <div id="confirm" role="alertdialog" aria-labelledby="ck" aria-describedby="cmsg">
+    <div class="k" id="ck"></div>
+    <div class="msg" id="cmsg"></div>
+    <div class="btns"><button class="btn" type="button" data-act="cancel">Cancel</button><button class="btn go" type="button" data-act="ok">Send</button></div>
+  </div>
+</div>
+
+<div id="bub" aria-hidden="true"><svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="14" fill="none" stroke-width="4"/><circle id="arc" cx="18" cy="18" r="14" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="88" stroke-dashoffset="0"/></svg></div>
+<div id="note" role="status"><div class="ic"></div><div style="min-width:0"><div class="n"></div><div class="k"></div></div></div>
+
+<script type="module" src="/ui/island.js"></script>
+</body>
+</html>

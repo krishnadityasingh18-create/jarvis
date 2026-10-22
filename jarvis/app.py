@@ -320,13 +320,17 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
         if _tunnelled(request.headers) and request.url.path not in remote.PATHS:
             return JSONResponse({"detail": "the desk is local-only"}, status_code=403)
         response = await call_next(request)
-        if request.url.path == "/" or request.url.path.startswith("/ui/"):
+        if request.url.path in ("/", "/island") or request.url.path.startswith("/ui/"):
             response.headers["Cache-Control"] = "no-cache"   # a UI update shows on the next load
         return response
 
     @app.get("/")
     async def index():
         return FileResponse(UI / "index.html")
+
+    @app.get("/island")
+    async def island():
+        return FileResponse(UI / "island.html")
 
     app.mount("/ui", StaticFiles(directory=UI), name="ui")
 
@@ -364,6 +368,9 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                     await hub.switch_chat(None)
                 elif m.get("type") == "open_chat" and isinstance(m.get("id"), int):
                     await hub.switch_chat(m["id"])
+                elif m.get("type") == "ptt":   # the island's mic button: same as Right Ctrl
+                    if hub.voice:
+                        hub.voice.event("hotkey_down" if m.get("down") else "hotkey_up")
                 elif m.get("type") == "mute":
                     await hub.set_muted(bool(m.get("on")))
                 elif m.get("type") == "screenshot":
