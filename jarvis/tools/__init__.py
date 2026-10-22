@@ -204,6 +204,8 @@ def undo(conn, action_id: int) -> str:
         day.undo(conn, u)
     elif u["kind"] in claude.KINDS:
         claude.undo(u)
+    elif u["kind"] in vault.KINDS:
+        vault.undo(conn, u, Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent)
     elif u["kind"] in edit.KINDS:
         edit.undo(u, Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent)
     else:
@@ -245,4 +247,4 @@ def undo_last(ctx):
     return "There is nothing recent to undo.", None
 
 
-from jarvis.tools import apps, briefing, claude, day, delegate, devices, edit, github, google_tools, outbound, files, memory, notes, web, windows  # noqa: E402,F401  (registers their tools)
+from jarvis.tools import apps, briefing, claude, day, delegate, devices, edit, github, google_tools, outbound, files, memory, notes, vault, web, windows  # noqa: E402,F401  (registers their tools)

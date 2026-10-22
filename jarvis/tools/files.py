@@ -41,13 +41,15 @@ def start_indexer(cfg, on_banner) -> None:
         except Exception as e:
             on_banner(f"App list unavailable ({e.__class__.__name__}); opening apps by name only")
         from jarvis import notes
+        from jarvis.tools import vault
         warned = set()
         while True:
             for name, job in (
                     ("File index", lambda: build_index(cfg.db_path, cfg.file_roots,
                                                        cfg.file_exclude)),
                     ("File content index", lambda: notes.index_contents(
-                        cfg.db_path, cfg.file_roots, cfg.file_exclude + cfg.content_exclude,
+                        cfg.db_path, [*cfg.file_roots, vault.folder(cfg)],
+                        cfg.file_exclude + cfg.content_exclude,
                         skip=[cfg.app_dir]))):
                 try:
                     job()
