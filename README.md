@@ -253,6 +253,13 @@ The same JARVIS, with the same memory, plan and tools, answers on the phone
   - "Call me about it": a call to your own number, no question asked.
   - "Call +91… to …": reads the number and the purpose back first.
   - "WhatsApp … that …": asks first. Nothing is ever sent unasked.
+- **Call-me reminders:** "remind me at 9 to leave, and call me". When it's due,
+  JARVIS speaks it and phones your own number (never asks). A reminder that fires
+  late because JARVIS was off doesn't call. Without `[remote]` set up, the reminder
+  still fires and says the call couldn't be placed.
+- **Call costs:** every outbound call counts on the usage meter. Once Vapi reports
+  it ended, its length and cost are added to the month's spend, converted at
+  `[remote] usd_inr` (default 88).
 
 ### Setting up the away channel
 
