@@ -1,5 +1,6 @@
 import asyncio
 import glob
+import math
 import os
 import queue
 import sys
@@ -91,9 +92,11 @@ NO_MIC = "Voice off, text only"
 def resample_to_16k(x: np.ndarray, sr: int) -> np.ndarray:
     if sr == RATE:
         return x
-    n = round(len(x) * RATE / sr)
-    # ponytail: linear interpolation, fine for speech; use soxr if Whisper accuracy suffers
-    return np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
+    from scipy.signal import resample_poly   # scipy comes with openwakeword
+    g = math.gcd(RATE, sr)
+    # ponytail: filter state isn't carried across 80 ms mic blocks (small edge
+    # transients); carry it (scipy upfirdn/lfilter zi) if wakeword misfires
+    return resample_poly(x, RATE // g, sr // g).astype(np.float32)
 
 
 def _add_cuda_dlls() -> None:
