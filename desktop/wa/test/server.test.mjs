@@ -37,6 +37,7 @@ test("status follows the connection events, qr as a data URL", async () => {
   await api.idle();
   const [, s] = await get("/status");
   assert.equal(s.state, "qr");
+  assert.ok(s.qr_text.length > 50);
   assert.match(s.qr, /^data:image\/png;base64,/);
   sock.ev.emit("connection.update", { connection: "open" });
   assert.deepEqual((await get("/status"))[1], { state: "linked", qr: null });

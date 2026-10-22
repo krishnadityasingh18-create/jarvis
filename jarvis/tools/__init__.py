@@ -30,6 +30,8 @@ class Tool:
     # per-call decisions (e.g. hardware: "start" asks, "stop" never does)
     needs_confirm: Callable[[object, dict], bool] | None = None
     remote_ok: Callable[[object, dict], bool] | None = None
+    # resolves/validates args before the question is asked (an error is logged and returned)
+    prepare: Callable[[object, dict], dict] | None = None
     limit: int = MAX_RESULT   # result size cap (characters)
 
 
@@ -53,7 +55,7 @@ TOOLS: dict[str, Tool] = {}
 def tool(description: str, confirm: bool = False, describe=None, readonly: bool = False,
          private: bool = False, untrusted: bool = False, max_chars: int = MAX_RESULT,
          exports: bool = False, local_only: bool = False, needs_confirm=None, remote_ok=None,
-         **params: str):
+         prepare=None, **params: str):
     """Register fn as a tool. params: name="type: description"; a leading '?' makes it optional."""
     def wrap(fn):
         props, required = {}, []
@@ -68,7 +70,7 @@ def tool(description: str, confirm: bool = False, describe=None, readonly: bool 
                                   confirm=confirm, describe=describe, readonly=readonly,
                                   private=private, untrusted=untrusted, exports=exports,
                                   local_only=local_only, needs_confirm=needs_confirm,
-                                  remote_ok=remote_ok,
+                                  remote_ok=remote_ok, prepare=prepare,
                                   limit=max_chars)
         return fn
     return wrap
@@ -144,6 +146,13 @@ async def run(ctx: Ctx, call: dict) -> str:
         return (f"Error: this request used the user's private files, so {name} can't run in "
                 "it: nothing from it may reach the internet or cloud models. The user can ask "
                 "for that separately.")
+    if t.prepare:
+        try:
+            args = t.prepare(ctx, args)
+        except Exception as e:   # e.g. "Which one: A, B?": say so before asking anything
+            result = f"Error: {e}"
+            await _log(ctx, name, args, result, "failed", None)
+            return result
     # a tool that decides per call (dynamic is True/False) also decides for tainted turns:
     # stopping hardware must never wait for a yes
     if t.confirm or dynamic or (ctx.agent and not t.readonly) or (

@@ -1,3 +1,4 @@
+import atexit
 import getpass
 import subprocess
 import sys
@@ -73,6 +74,35 @@ def remote_cli(args: list[str]) -> None:
         print("usage: python -m jarvis remote token | remote tunnel")
 
 
+def whatsapp_cli(args: list[str]) -> None:
+    """Link WhatsApp from the terminal: starts the helper if JARVIS isn't running it, prints
+    the QR (scan it in WhatsApp > Linked devices), and waits until it is linked."""
+    from jarvis import whatsapp
+    if args != ["link"]:
+        return print("usage: python -m jarvis whatsapp link")
+    data = load_config().db_path.parent
+    proc = None if whatsapp.client(data) else whatsapp.start_helper(data)
+    c = whatsapp.wait_for(data)
+    if c is None:
+        raise SystemExit("The WhatsApp helper didn't start (needs node, and: "
+                         "npm install --prefix desktop/wa)")
+    sys.stdout.reconfigure(encoding="utf-8")
+    shown = None
+    try:
+        for _ in range(90):
+            st = c.status() or {}
+            if st.get("state") == "linked":
+                return print("WhatsApp is linked.")
+            if st.get("qr_text") and st["qr_text"] != shown:
+                shown = st["qr_text"]
+                print("\nScan with WhatsApp > Linked devices > Link a device:\n" + shown)
+            time.sleep(2)
+        print("Timed out; run it again.")
+    finally:
+        if proc:
+            proc.terminate()
+
+
 def desk_windows() -> list[int]:
     """JARVIS windows already open (Edge app windows titled Jarvis)."""
     from jarvis.app import WINDOW_TITLE
@@ -120,6 +150,8 @@ def main() -> None:
         return remote_cli(sys.argv[2:])
     if sys.argv[1:2] == ["accounts"]:
         return accounts_cli(sys.argv[2:])
+    if sys.argv[1:2] == ["whatsapp"]:
+        return whatsapp_cli(sys.argv[2:])
     if sys.argv[1:2] == ["keys"]:
         return keys_cli(sys.argv[2:])
     cfg = load_config()
@@ -139,6 +171,10 @@ def main() -> None:
         hub.from_thread(name, payload)
 
     voice.on_event = on_event
+    from jarvis import whatsapp
+    wa = whatsapp.start_helper(cfg.db_path.parent)   # linked once by QR, then it just runs
+    if wa:
+        atexit.register(wa.terminate)
     from jarvis.tools import files
     files.start_indexer(cfg, lambda text: on_event("banner", {"text": text}))
     voice.start()

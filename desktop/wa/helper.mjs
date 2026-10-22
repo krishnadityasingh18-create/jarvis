@@ -13,7 +13,7 @@ const DAY = 24 * 3600 * 1000;
 const E164 = /^\+\d{8,15}$/;
 
 export function createServer({ sock, token }) {
-  let state = "unlinked", qr = null, pending = Promise.resolve();
+  let state = "unlinked", qr = null, qrText = null, pending = Promise.resolve();
   const contacts = new Map();           // jid -> {name, jid, number}
   const sentTo = new Map();             // jid -> ms of the last send
   let replies = [];                     // memory only
@@ -31,9 +31,10 @@ export function createServer({ sock, token }) {
     s.ev.on("contacts.upsert", (l) => l.forEach(upsert));
     s.ev.on("contacts.update", (l) => l.forEach(upsert));
     s.ev.on("connection.update", (u) => {
-      if (u.qr) pending = QRCode.toDataURL(u.qr).then((url) => { state = "qr"; qr = url; });
-      if (u.connection === "open") { state = "linked"; qr = null; }
-      if (u.connection === "close") { state = "unlinked"; qr = null; }
+      if (u.qr) pending = Promise.all([QRCode.toDataURL(u.qr), QRCode.toString(u.qr, { type: "terminal", small: true })])
+        .then(([url, txt]) => { state = "qr"; qr = url; qrText = txt; });
+      if (u.connection === "open") { state = "linked"; qr = qrText = null; }
+      if (u.connection === "close") { state = "unlinked"; qr = qrText = null; }
     });
     s.ev.on("messages.upsert", ({ messages }) => {
       for (const m of messages ?? []) {
@@ -67,7 +68,7 @@ export function createServer({ sock, token }) {
     const out = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
     if (auth.length !== want.length || !crypto.timingSafeEqual(auth, want)) return out(401, { error: "unauthorized" });
     const url = new URL(req.url, "http://x");
-    if (req.method === "GET" && url.pathname === "/status") { await pending; return out(200, { state, qr }); }
+    if (req.method === "GET" && url.pathname === "/status") { await pending; return out(200, qrText ? { state, qr, qr_text: qrText } : { state, qr }); }  // qr_text: for the terminal CLI
     if (req.method === "GET" && url.pathname === "/contacts")
       return out(200, { matches: match([...contacts.values()], url.searchParams.get("q")) });
     if (req.method === "GET" && url.pathname === "/replies") {

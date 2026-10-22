@@ -3,14 +3,14 @@ import base64
 import time as clock_time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from jarvis import brain, db, remote, tools
+from jarvis import brain, db, remote, tools, whatsapp
 from jarvis.tools import outbound
 
 UI = Path(__file__).parent / "ui"
@@ -140,6 +140,38 @@ class Hub:
         window connected. After a couple of minutes, stop waiting for the window."""
         voice_ok = self.voice is None or getattr(self.voice, "loaded", True)
         return voice_ok and (bool(self.sockets) or elapsed >= self.READY_TIMEOUT_S)
+
+    async def whatsapp_state(self) -> dict:
+        """The helper's link state for the island: linked / unlinked / qr (with the image)."""
+        c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
+        st = (await asyncio.to_thread(c.status) if c else None) or {}
+        return {"type": "whatsapp", "state": st.get("state", "unlinked"), "qr": st.get("qr") or ""}
+
+    async def whatsapp_link(self) -> None:
+        """The user asked to link: show the helper's QR as it appears, until linked (2 min)."""
+        last = None
+        for _ in range(60):
+            msg = await self.whatsapp_state()
+            if msg != last:
+                await self.broadcast(msg)
+                last = msg
+            if msg["state"] == "linked":
+                return
+            await asyncio.sleep(2)
+
+    async def whatsapp_replies(self, interval: float = 30) -> None:
+        """Replies to messages JARVIS sent (the last 24 h, from the helper) drop in as cards."""
+        since = datetime.now(timezone.utc).isoformat()
+        while True:
+            await asyncio.sleep(interval)
+            c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
+            if c is None:
+                continue
+            asked, since = since, datetime.now(timezone.utc).isoformat()
+            for m in await asyncio.to_thread(c.replies, asked):
+                await self.broadcast({"type": "notify", "icon": "whatsapp",
+                                      "title": m.get("name") or m["from"],
+                                      "text": m["text"][:200]})
 
     async def tick(self, now: datetime) -> None:
         """Every 30 s: speak due reminders, and start the morning briefing once a day.
@@ -305,8 +337,10 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     async def lifespan(app):
         hub.loop = asyncio.get_running_loop()
         clock = asyncio.create_task(hub.clock())
+        replies = asyncio.create_task(hub.whatsapp_replies())
         yield
         clock.cancel()
+        replies.cancel()
 
     app = FastAPI(lifespan=lifespan)
     app.state.hub = hub
@@ -345,6 +379,7 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
         await sock.send_json({"type": "actions", "actions": db.recent_actions(conn, 30)})
         await sock.send_json(hub.chats())
         await sock.send_json(hub.mic())
+        await sock.send_json(await hub.whatsapp_state())
         try:
             while True:
                 m = await sock.receive_json()
@@ -366,6 +401,8 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                     await hub.switch_chat(m["id"])
                 elif m.get("type") == "mute":
                     await hub.set_muted(bool(m.get("on")))
+                elif m.get("type") == "whatsapp_link":
+                    asyncio.create_task(hub.whatsapp_link())
                 elif m.get("type") == "screenshot":
                     await sock.send_json(await asyncio.to_thread(save_screenshot))
                 elif m.get("type") == "upload":
