@@ -24,6 +24,7 @@ def connect(client):
     assert w.receive_json()["type"] == "actions"
     assert w.receive_json()["type"] == "chats"
     assert w.receive_json()["type"] == "mic"
+    assert [w.receive_json()["type"] for _ in range(3)] == ["vault", "artifacts", "glance"]
     return ws, w
 
 
@@ -403,3 +404,63 @@ def test_screenshot_puts_the_window_back_even_if_the_grab_fails(monkeypatch):
         raise OSError("no display")
     r = app_mod.save_screenshot(grab=lambda: app_mod.grab_without_jarvis(grab, wait=0))
     assert r["type"] == "banner" and log == [app_mod.SW_HIDE, app_mod.SW_SHOW, "bring"]
+
+
+def connect_all(client):   # connect() already checks vault, artifacts and glance arrive
+    ws, w = connect(client)
+    return ws, w, None
+
+
+def test_open_item_unknown_id_says_moved_or_deleted(cfg, conn):
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws, _ = connect_all(client)
+        ws.send_json({"type": "open_item", "kind": "artifact", "id": 999})
+        seen = recv_until(ws, lambda m: m["type"] == "banner")
+        ctx.__exit__(None, None, None)
+    assert "moved or deleted" in seen[-1]["text"]
+
+
+def test_open_item_opens_a_vault_file_by_id_not_by_path(cfg, conn, tmp_path, monkeypatch):
+    f = tmp_path / "a.txt"
+    f.write_text("x")
+    conn.execute("INSERT INTO vault(ts, kind, title, text, path, url, sha) "
+                 "VALUES('t','file','a','',?,'','s')", (str(f),))
+    opened = []
+    monkeypatch.setattr("os.startfile", opened.append, raising=False)
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws, _ = connect_all(client)
+        ws.send_json({"type": "open_item", "kind": "vault", "id": 1, "path": "C:/evil.exe"})
+        ws.send_json({"type": "full_view"})   # the banner it answers with proves the open ran first
+        recv_until(ws, lambda m: m["type"] == "banner")
+        ctx.__exit__(None, None, None)
+    assert opened == [str(f)]
+
+
+def test_keep_text_from_the_island_lands_in_the_vault(cfg, conn):
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws, _ = connect_all(client)
+        ws.send_json({"type": "keep", "text": "locker 214"})
+        seen = recv_until(ws, lambda m: m["type"] == "vault")
+        ctx.__exit__(None, None, None)
+    assert seen[-1]["items"][0]["title"] == "locker 214"
+
+
+def test_remove_vault_item_and_full_view_default(cfg, conn):
+    conn.execute("INSERT INTO vault(ts, kind, title, text, path, url, sha) "
+                 "VALUES('t','note','n','n','','','s')")
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws, _ = connect_all(client)
+        ws.send_json({"type": "remove_vault", "id": 1})
+        seen = recv_until(ws, lambda m: m["type"] == "vault")
+        ws.send_json({"type": "full_view"})
+        banner = recv_until(ws, lambda m: m["type"] == "banner")[-1]
+        ctx.__exit__(None, None, None)
+    assert seen[-1]["items"] == [] and "isn't available" in banner["text"]
+
+
+def test_island_page_served(cfg, conn, tmp_path, monkeypatch):
+    (tmp_path / "island.html").write_text("<html>island</html>")
+    monkeypatch.setattr("jarvis.app.UI", tmp_path)
+    with TestClient(create_app(cfg, conn)) as client:
+        r = client.get("/island")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")

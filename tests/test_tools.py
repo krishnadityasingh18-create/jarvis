@@ -226,3 +226,11 @@ async def test_describe_error_is_a_tool_error_not_a_crash(cfg, conn, monkeypatch
     ctx = make_ctx(cfg, conn)
     r = await run(ctx, call("risky2", window=5))
     assert r.startswith("Error") and ctx.asked == []
+
+
+async def test_tool_start_is_emitted_before_the_action(cfg, conn, fake_tools):
+    ctx = make_ctx(cfg, conn)
+    await run(ctx, call("safe", x="1"))
+    kinds = [m["type"] for m in ctx.emitted]
+    assert ctx.emitted[kinds.index("tool_start")] == {"type": "tool_start", "name": "safe"}
+    assert kinds.index("tool_start") < kinds.index("action")

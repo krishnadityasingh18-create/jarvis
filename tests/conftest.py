@@ -18,6 +18,13 @@ def cfg(tmp_path):
     return c
 
 
+@pytest.fixture(autouse=True)
+def no_weather_network(monkeypatch):
+    """The island's glance asks for the weather; tests never reach the network."""
+    from jarvis.tools import briefing
+    monkeypatch.setattr(briefing, "weather_short", lambda cfg: ("31°", "Clear"))
+
+
 @pytest.fixture
 def conn(cfg):
     return db.connect(cfg.db_path)

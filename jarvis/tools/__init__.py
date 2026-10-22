@@ -159,6 +159,7 @@ async def run(ctx: Ctx, call: dict) -> str:
         if not await ctx.confirm(q):
             await _log(ctx, name, args, DECLINED, "declined", None)
             return DECLINED
+    await ctx.emit({"type": "tool_start", "name": name})   # the island's live-activity bubble
     # the UI's neural view lights the module that's working (tools/<module>.py)
     await ctx.emit({"type": "tool", "name": name, "module": t.fn.__module__.rsplit(".", 1)[-1]})
     if inspect.iscoroutinefunction(t.fn):
@@ -248,3 +249,4 @@ def undo_last(ctx):
 
 
 from jarvis.tools import apps, briefing, claude, day, delegate, devices, edit, github, google_tools, outbound, files, memory, notes, vault, web, windows  # noqa: E402,F401  (registers their tools)
+from jarvis import artifacts  # noqa: E402,F401  (registers save_answer)
