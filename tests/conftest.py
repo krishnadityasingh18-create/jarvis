@@ -25,6 +25,13 @@ def no_weather_network(monkeypatch):
     monkeypatch.setattr(briefing, "weather_short", lambda cfg: ("31°", "Clear"))
 
 
+@pytest.fixture(autouse=True)
+def not_fullscreen(monkeypatch):
+    """Whatever the dev is doing on this laptop must not leak `fullscreen` messages into tests."""
+    from jarvis import fullscreen
+    monkeypatch.setattr(fullscreen, "_query", lambda: 1)
+
+
 @pytest.fixture
 def conn(cfg):
     return db.connect(cfg.db_path)

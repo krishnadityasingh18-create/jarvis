@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import time
 
 from fastapi.testclient import TestClient
@@ -464,3 +464,12 @@ def test_island_page_served(cfg, conn, tmp_path, monkeypatch):
     with TestClient(create_app(cfg, conn)) as client:
         r = client.get("/island")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+
+
+
+def test_fullscreen_state_reaches_the_island(cfg, conn, monkeypatch):
+    monkeypatch.setattr("jarvis.fullscreen._query", lambda: 3)
+    with TestClient(create_app(cfg, conn)) as client, client.websocket_connect("/ws") as ws:
+        # sent when the watcher notices, or on connect if it noticed first
+        seen = recv_until(ws, lambda m: m["type"] == "fullscreen")
+    assert seen[-1] == {"type": "fullscreen", "on": True}

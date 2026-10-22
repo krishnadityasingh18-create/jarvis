@@ -14,7 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from jarvis import artifacts, brain, db, remote, tools
+from jarvis import artifacts, brain, db, fullscreen, remote, tools
 from jarvis.tools import outbound, vault
 from jarvis.tools.apps import _runs_code
 
@@ -54,7 +54,8 @@ class Hub:
         self.loop: asyncio.AbstractEventLoop | None = None
         self.pending: dict[str, asyncio.Future] = {}   # open confirmation questions
         self.tasks: set[asyncio.Task] = set()          # island requests that may wait on a yes
-        self.open_full_view = self._no_full_view       # __main__ replaces it with the Edge HUD
+        self.fullscreen = False
+        self.open_full_view = self._no_full_view     # __main__ replaces it with the Edge HUD
 
     async def _no_full_view(self) -> None:
         await self.broadcast({"type": "banner", "text": "Full view isn't available"})
@@ -109,6 +110,8 @@ class Hub:
         await sock.send_json(self.vault())
         await sock.send_json(self.artifacts())
         await sock.send_json(await asyncio.to_thread(self.glance))
+        if self.fullscreen:
+            await sock.send_json({"type": "fullscreen", "on": True})
 
     def usage(self) -> dict:
         return {"type": "usage", "spent_inr": round(db.month_spend_inr(self.conn), 2),
@@ -260,6 +263,15 @@ class Hub:
                 await self.broadcast({"type": "banner", "text": f"Scheduler error: {e}"})
             await asyncio.sleep(30)
 
+    async def watch_fullscreen(self) -> None:
+        """Tell the island when a game, video or presentation takes the screen."""
+        while True:
+            on = await asyncio.to_thread(fullscreen.state)
+            if on != self.fullscreen:
+                self.fullscreen = on
+                await self.broadcast({"type": "fullscreen", "on": on})
+            await asyncio.sleep(2)
+
     async def _stop_turn(self) -> None:
         for fut in self.pending.values():   # an open question counts as "no"
             if not fut.done():
@@ -378,9 +390,10 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         hub.loop = asyncio.get_running_loop()
-        clock = asyncio.create_task(hub.clock())
+        bg = [asyncio.create_task(hub.clock()), asyncio.create_task(hub.watch_fullscreen())]
         yield
-        clock.cancel()
+        for t in bg:
+            t.cancel()
 
     app = FastAPI(lifespan=lifespan)
     app.state.hub = hub
