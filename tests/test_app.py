@@ -24,6 +24,7 @@ def connect(client):
     assert w.receive_json()["type"] == "actions"
     assert w.receive_json()["type"] == "chats"
     assert w.receive_json()["type"] == "mic"
+    assert w.receive_json() == {"type": "whatsapp", "state": "unlinked", "qr": ""}
     assert [w.receive_json()["type"] for _ in range(3)] == ["vault", "artifacts", "glance"]
     return ws, w
 

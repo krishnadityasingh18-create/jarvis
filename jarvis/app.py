@@ -7,7 +7,7 @@ import time as clock_time
 import webbrowser
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from jarvis import artifacts, brain, db, fullscreen, remote, tools
+from jarvis import artifacts, brain, db, fullscreen, remote, tools, whatsapp
 from jarvis.tools import outbound, vault
 from jarvis.tools.apps import _runs_code
 
@@ -54,6 +54,7 @@ class Hub:
         self.route = cfg.default_route
         self.loop: asyncio.AbstractEventLoop | None = None
         self.pending: dict[str, asyncio.Future] = {}   # open confirmation questions
+        self.linking: asyncio.Task | None = None   # the running WhatsApp link poller
         self.tasks: set[asyncio.Task] = set()          # island requests that may wait on a yes
         self.fullscreen = False
         self.open_full_view = self._no_full_view  # __main__ replaces it with the Edge HUD
@@ -231,6 +232,38 @@ class Hub:
         voice_ok = self.voice is None or getattr(self.voice, "loaded", True)
         return voice_ok and (bool(self.sockets) or elapsed >= self.READY_TIMEOUT_S)
 
+    async def whatsapp_state(self) -> dict:
+        """The helper's link state for the island: linked / unlinked / qr (with the image)."""
+        c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
+        st = (await asyncio.to_thread(c.status) if c else None) or {}
+        return {"type": "whatsapp", "state": st.get("state", "unlinked"), "qr": st.get("qr") or ""}
+
+    async def whatsapp_link(self) -> None:
+        """The user asked to link: show the helper's QR as it appears, until linked (2 min)."""
+        last = None
+        for _ in range(60):
+            msg = await self.whatsapp_state()
+            if msg != last:
+                await self.broadcast(msg)
+                last = msg
+            if msg["state"] == "linked":
+                return
+            await asyncio.sleep(2)
+
+    async def whatsapp_replies(self, interval: float = 30) -> None:
+        """Replies to messages JARVIS sent (the last 24 h, from the helper) drop in as cards."""
+        since = datetime.now(timezone.utc).isoformat()
+        while True:
+            await asyncio.sleep(interval)
+            c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
+            if c is None:
+                continue
+            for m in await asyncio.to_thread(c.replies, since):
+                since = max(since, m.get("ts", ""))   # the newest one shown: never show it twice
+                await self.broadcast({"type": "notify", "icon": "whatsapp",
+                                      "title": m.get("name") or m["from"],
+                                      "text": m["text"][:200]})
+
     async def tick(self, now: datetime) -> None:
         """Every 30 s: speak due reminders, and start the morning briefing once a day.
         These are the only things JARVIS does unasked (the user set them up)."""
@@ -406,7 +439,8 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         hub.loop = asyncio.get_running_loop()
-        bg = [asyncio.create_task(hub.clock()), asyncio.create_task(hub.watch_fullscreen())]
+        bg = [asyncio.create_task(hub.clock()), asyncio.create_task(hub.watch_fullscreen()),
+              asyncio.create_task(hub.whatsapp_replies())]
         yield
         for t in bg:
             t.cancel()
@@ -452,6 +486,7 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
         await sock.send_json({"type": "actions", "actions": db.recent_actions(conn, 30)})
         await sock.send_json(hub.chats())
         await sock.send_json(hub.mic())
+        await sock.send_json(await hub.whatsapp_state())
         await hub.send_island_data(sock)
         try:
             while True:
@@ -474,6 +509,9 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                     await hub.switch_chat(m["id"])
                 elif m.get("type") == "mute":
                     await hub.set_muted(bool(m.get("on")))
+                elif m.get("type") == "whatsapp_link":
+                    if hub.linking is None or hub.linking.done():
+                        hub.linking = asyncio.create_task(hub.whatsapp_link())
                 elif m.get("type") == "screenshot":
                     await sock.send_json(await asyncio.to_thread(save_screenshot))
                 elif m.get("type") == "keep":
