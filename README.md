@@ -1,4 +1,4 @@
-# JARVIS (Phase 1: voice loop)
+# JARVIS
 
 A local voice and text assistant. Say "Hey Jarvis", hold **Right Ctrl**, or type.
 It answers in a short spoken line (the Kokoro "Lewis" voice) and puts longer
@@ -51,8 +51,18 @@ This opens an Edge app window at http://127.0.0.1:8765. Startup takes about
 20 s while the voice models load. Settings live in `config.toml`: models,
 voice, hotkey, barge-in mode and budget.
 
-- **Orb colours:** grey = idle, blue = listening, amber = thinking,
-  green = speaking. Click the orb to stop.
+- **The orb:** one multicolour glow ring. Its motion shows the state: a slow
+  turn when idle, brighter when listening, a fast spin when thinking, and it
+  swells with the voice when speaking. It dims when offline. The status line
+  in the header says the same in words. Click the orb to stop.
+- **Input bar:** type, or mute the mic. The model picker (Fast, Reasoning,
+  Local) chooses the route. The **+** menu adds files or photos (up to 10 MB
+  each), takes a screenshot (JARVIS's own window left out), and turns on
+  **Extended thinking** (the Reasoning route).
+- **Side panel** (the button at the right of the input bar): **Chat** is the
+  transcript, **Details** holds longer answers, tables and links, **History**
+  lists past chats and starts a **New chat**, and **Neural** lights up the
+  parts of JARVIS in use. **Show details** under a reply opens it too.
 - **Barge-in:** on speakers, say "Hey Jarvis" or press Right Ctrl while it
   talks. If you wear headphones, set `barge_in = "voice"` in `config.toml`
   to interrupt just by speaking.
@@ -63,12 +73,11 @@ voice, hotkey, barge-in mode and budget.
 
 ## Demo script (acceptance test)
 
-1. Run `python -m jarvis`. The window opens, the orb is grey, and the meter
-   shows ₹0.
+1. Run `python -m jarvis`. The window opens and the status says "Ready".
 2. Say "Hey Jarvis" (you hear a chime), then "good evening". You get a short
    spoken greeting addressed to "sir".
 3. Say "Hey Jarvis, explain the Nyquist sampling theorem." It speaks one or
-   two sentences and puts the full explanation in the right-hand pane.
+   two sentences; **Show details** opens the full explanation in the side panel.
 4. While it's speaking, say "Hey Jarvis" (or press Right Ctrl). It stops
    almost at once and listens.
 5. Hold Right Ctrl, ask "what did I just ask you about?", then release. It
@@ -92,24 +101,24 @@ builds a filename index of your home folder in the background. That takes about
   these can run, and JARVIS always asks first.
 - **Confirmations:** closing a window, running a script, and anything a
   sub-agent wants to do all need your approval. Say "yes" or "no" within 8
-  seconds (no wake word needed), or click **Confirm** or **Cancel**. Silence
+  seconds (no wake word needed), or click **Allow** or **Cancel** (Escape cancels). Silence
   counts as no.
-- **Action log and undo:** open **Actions** under the header. Each action has
-  an **Undo** button where undo is possible, or you can say "undo that".
+- **Undo:** say "undo that" to reverse the last action that can be undone.
+  There is no undo button in the window.
 - **Sub-agents:** `[agents.*]` in `config.toml`. `thinker` uses Gemini for
   hard reasoning. `private` runs only on the local model and can search your
   files; it never falls back to the cloud.
 
 ### Phase 2a demo
 
-1. "Hey Jarvis, open Notepad." Notepad opens, and Actions shows ✓ with Undo.
+1. "Hey Jarvis, open Notepad." Notepad opens.
 2. "Snap Notepad to the left." Then: "Undo that." It returns to where it was.
 3. "Find my files with motor in the name." The paths appear on screen.
 4. "Remember that my lab is on Thursdays." Restart JARVIS, then ask "When is
    my lab?"
 5. "Close Notepad." It asks "Close Notepad, sir?"; say "yes" and it closes.
 6. Put `hello.py` (`print("hello")`) in `jarvis/scripts/`. Say "Run the hello
-   script" and answer "no": it is cancelled. Ask again and click Confirm: the
+   script" and answer "no": it is cancelled. Ask again and click Allow: the
    output appears on screen.
 7. "Ask the thinker to plan my week around two exams and a lab report." The
    status shows "Consulting thinker…", then you get the answer.
@@ -143,7 +152,7 @@ ollama create jarvis-local -f Modelfile
 - **Changing files:** JARVIS can create files and folders, overwrite or edit text
   files, and move, rename or delete anything in your home folder.
   - **Nothing is permanent.** A deleted file, or the old version of an edited
-    one, goes to `data\trash`, and Undo puts it back. Only you empty the trash.
+    one, goes to `data\trash`, and "undo that" puts it back. Only you empty the trash.
   - Overwrite, edit, move and delete always ask first.
   - JARVIS never changes its own folder, and never writes programs or scripts
     (`.exe`, `.bat`, `.lnk`, …).
@@ -185,11 +194,11 @@ motor-fault-detection".
    files, with the file and page shown on screen.
 2. "Summarise BEEE unit 5." It finds and reads the PDF and answers locally.
 3. "Create a file called todo.md on my Desktop with three study tasks." It's
-   created, and Actions shows Undo.
+   created.
 4. "In todo.md, change three to four." It asks "Edit todo.md, sir?"; say yes,
-   then Undo restores the old version.
-5. "Delete todo.md." It asks, then moves the file to `data\trash`; Undo brings it
-   back.
+   then "undo that" restores the old version.
+5. "Delete todo.md." It asks, then moves the file to `data\trash`; "undo that"
+   brings it back.
 6. "Search the web for the ESP32-S3 datasheet." You get an answer with Sources.
 7. "Ask the researcher to compare buck and boost converter efficiency." You get a
    researched answer with links.
@@ -305,7 +314,7 @@ around `{{purpose}}`, which JARVIS fills in for each call.
   - Device names must match: "desk fan" never runs the "desk heater". You get
     "did you mean …?" instead.
   - Numbers are range-checked (`min`/`max`) before you're asked.
-  - `undo = "stop"` lets Undo send the safe opposite.
+  - `undo = "stop"` lets "undo that" send the safe opposite.
 - **Motor rig (from motor-fault-detection):** already set up. Plug in the
   ESP32 and say "start the motor rig", "set the motor rig speed to 400" or
   "stop the motor rig".
@@ -328,8 +337,10 @@ around `{{purpose}}`, which JARVIS fills in for each call.
 ## Cost
 
 ₹0 a month. Groq and Gemini are on free tiers, and Whisper, Kokoro and Ollama
-run locally. The meter counts requests per provider. Rupees only appear if a
-paid route is added (set `price_in` and `price_out` on that route in `config.toml`).
+run locally. Requests are counted per provider in the database; the window
+shows no meter. If a paid route is added (set `price_in` and `price_out` on it
+in `config.toml`), its spend is tracked and the route is skipped once
+`[budget] monthly_inr` is reached.
 
 ## Tests
 
