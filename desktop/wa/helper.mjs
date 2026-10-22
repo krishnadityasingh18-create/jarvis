@@ -11,13 +11,21 @@ import { match } from "./contacts.mjs";
 
 const DAY = 24 * 3600 * 1000;
 const E164 = /^\+\d{8,15}$/;
+const SERVER_ACK = 2;   // proto.WebMessageInfo.Status.SERVER_ACK; DELIVERY_ACK (3) and READ (4) follow it
 
-export function createServer({ sock, token }) {
+export function createServer({ sock, token, ackMs = 15000 }) {
   let state = "unlinked", qr = null, qrText = null, pending = Promise.resolve();
   const contacts = new Map();           // jid -> {name, jid, number}
   const sentTo = new Map();             // jid -> ms of the last send
   let replies = [];                     // memory only
   let server, cur = null;           // cur: the live socket (replaced on reconnect)
+  const acked = new Set(), waiting = new Map();   // message ids the server has acknowledged
+
+  // sendMessage resolves once the frame is written, not when WhatsApp has it: wait for the ack
+  const serverAck = (id) => acked.has(id) ? Promise.resolve(true) : new Promise((done) => {
+    const t = setTimeout(() => { waiting.delete(id); done(false); }, ackMs);
+    waiting.set(id, () => { clearTimeout(t); waiting.delete(id); done(true); });
+  });
 
   const person = (jid) => "+" + jid.split("@")[0].split(":")[0];
   const upsert = (c) => {
@@ -30,9 +38,18 @@ export function createServer({ sock, token }) {
     cur = s;
     s.ev.on("contacts.upsert", (l) => l.forEach(upsert));
     s.ev.on("contacts.update", (l) => l.forEach(upsert));
+    s.ev.on("messages.update", (list) => {
+      for (const { key, update } of list ?? []) {
+        if (!key?.fromMe || !key.id || !(update?.status >= SERVER_ACK)) continue;
+        if (acked.size > 500) acked.clear();
+        acked.add(key.id);
+        waiting.get(key.id)?.();
+      }
+    });
     s.ev.on("connection.update", (u) => {
       if (u.qr) pending = Promise.all([QRCode.toDataURL(u.qr), QRCode.toString(u.qr, { type: "terminal", small: true })])
-        .then(([url, txt]) => { state = "qr"; qr = url; qrText = txt; });
+        .then(([url, txt]) => { state = "qr"; qr = url; qrText = txt; })
+        .catch(() => {});   // a failed render must not make /status fail forever
       if (u.connection === "open") { state = "linked"; qr = qrText = null; }
       if (u.connection === "close") { state = "unlinked"; qr = qrText = null; }
     });
@@ -54,9 +71,11 @@ export function createServer({ sock, token }) {
     if (!body.text || typeof body.text !== "string") return { ok: false, error: "no message text" };
     const jid = body.to.slice(1) + "@s.whatsapp.net";
     try {
-      const r = await cur.sendMessage(jid, { text: body.text });   // resolves on the server ack
+      const r = await cur.sendMessage(jid, { text: body.text });
+      const id = r?.key?.id;
+      if (!id || !(await serverAck(id))) return { ok: false, error: "WhatsApp didn't confirm the message" };
       sentTo.set(jid, Date.now());
-      return { ok: true, id: r?.key?.id ?? "" };
+      return { ok: true, id };
     } catch (e) {
       return { ok: false, error: String(e?.message ?? e) };
     }
@@ -100,28 +119,32 @@ async function main() {
   const dir = path.resolve(process.argv[i + 1]);
   const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } =
     await import("@whiskeysockets/baileys");
-  const { state: auth, saveCreds } = await useMultiFileAuthState(path.join(dir, "wa_auth"));
   const { version } = await fetchLatestBaileysVersion().catch(() => ({}));
   const token = crypto.randomBytes(32).toString("hex");
   const api = createServer({ sock: null, token });
 
-  const connect = () => {
+  const connect = async () => {
+    // loaded on every connection: after a logout the folder is gone and this recreates it
+    const { state: auth, saveCreds } = await useMultiFileAuthState(path.join(dir, "wa_auth"));
     const sock = makeWASocket({ auth, version, printQRInTerminal: false, syncFullHistory: false });
     api.attach(sock);
-    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update", () => saveCreds().catch(() => {}));
     sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
       if (connection !== "close") return;
       const code = lastDisconnect?.error?.output?.statusCode;
+      if (code === DisconnectReason.connectionReplaced) return;   // another helper took over: don't fight it
       if (code === DisconnectReason.loggedOut) {
-        fs.rmSync(path.join(dir, "wa_auth"), { recursive: true, force: true });   // a stale session would never relink
+        fs.rmSync(path.join(dir, "wa_auth"), { recursive: true, force: true });   // revoked creds never relink
       }
-      setTimeout(connect, 3000);   // reconnects; after a logout this shows a fresh QR
+      setTimeout(() => connect().catch(console.error), 3000);   // after a logout this shows a fresh QR
     });
   };
-  connect();
+  await connect();
   const port = await api.listen(0);
   fs.mkdirSync(path.join(dir, "wa"), { recursive: true });
   fs.writeFileSync(path.join(dir, "wa", "port"), JSON.stringify({ port, token }));
+  // JARVIS holds our stdin open; when it goes away (even by crashing) so do we
+  process.stdin.on("end", () => process.exit(0)).on("error", () => process.exit(0)).resume();
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

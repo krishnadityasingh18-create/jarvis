@@ -110,7 +110,6 @@ def test_unreachable_helper_gives_ok_false(tmp_path):
     assert c.status() is None
 
 
-
 async def test_replies_become_notify_cards(cfg, conn, monkeypatch):
     from jarvis.app import Hub
     seen = []
@@ -135,3 +134,32 @@ async def test_whatsapp_state_without_helper(cfg, conn):
     from jarvis.app import Hub
     assert await Hub(cfg, conn, None, None).whatsapp_state() == \
         {"type": "whatsapp", "state": "unlinked", "qr": ""}
+
+
+async def test_remote_block_is_absolute_even_if_allowed(cfg, conn, helper):
+    cfg.remote = {"allow": ["send_whatsapp"]}
+    ctx = make_ctx(cfg, conn)
+    ctx.remote = "phone"
+    r = await run(ctx, call("send_whatsapp", to="+911234567890", text="hi"))
+    assert r.startswith("Error") and "at the desk" in r and helper.sent == [] and ctx.asked == []
+
+
+async def test_a_reply_is_shown_once(cfg, conn, monkeypatch):
+    from jarvis.app import Hub
+    calls, seen = [], []
+
+    class C:
+        def replies(self, since):
+            calls.append(since)
+            return [{"from": "+911", "name": "R", "text": "yo", "ts": "2999-01-01T00:00:00.000Z"}]
+    monkeypatch.setattr(whatsapp, "client", lambda d: C())
+    hub = Hub(cfg, conn, None, None)
+
+    async def grab(m):
+        seen.append(m)
+        if len(calls) == 2:
+            raise asyncio.CancelledError
+    hub.broadcast = grab
+    with pytest.raises(asyncio.CancelledError):
+        await hub.whatsapp_replies(interval=0)
+    assert calls[1] == "2999-01-01T00:00:00.000Z"

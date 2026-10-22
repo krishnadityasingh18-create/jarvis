@@ -176,6 +176,9 @@ def place_call(ctx, number, purpose):
 def _wa_prepare(ctx, args: dict) -> dict:
     """Before the question: check the text and the hourly cap, and turn a contact name into
     one number (never picking between two people, never guessing a number)."""
+    if ctx.remote:   # absolute: not even [remote] allow can let a message go from the phone
+        raise ValueError(f"WhatsApp messages need the user at the desk; they can't be sent "
+                         f"over {ctx.remote}. Tell them that.")
     to, text = str(args.get("to", "")), str(args.get("text", ""))
     if len(text) > MAX_MESSAGE:   # the question shows the whole text, so keep it readable
         raise ValueError(f"keep the message under {MAX_MESSAGE} characters")

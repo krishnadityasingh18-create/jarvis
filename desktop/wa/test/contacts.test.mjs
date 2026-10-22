@@ -29,3 +29,7 @@ test("nothing matches", () => {
   assert.deepEqual(match([C("Mom")], "zebra"), []);
   assert.deepEqual(match([C("Mom")], "  "), []);
 });
+
+test("short digit strings don't match numbers", () => {
+  assert.deepEqual(match([C("Dad", "+919876543210")], "987"), []);
+});

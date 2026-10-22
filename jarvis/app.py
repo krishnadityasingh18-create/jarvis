@@ -44,6 +44,7 @@ class Hub:
         self.route = cfg.default_route
         self.loop: asyncio.AbstractEventLoop | None = None
         self.pending: dict[str, asyncio.Future] = {}   # open confirmation questions
+        self.linking: asyncio.Task | None = None   # the running WhatsApp link poller
 
     def usage(self) -> dict:
         return {"type": "usage", "spent_inr": round(db.month_spend_inr(self.conn), 2),
@@ -167,8 +168,8 @@ class Hub:
             c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
             if c is None:
                 continue
-            asked, since = since, datetime.now(timezone.utc).isoformat()
-            for m in await asyncio.to_thread(c.replies, asked):
+            for m in await asyncio.to_thread(c.replies, since):
+                since = max(since, m.get("ts", ""))   # the newest one shown: never show it twice
                 await self.broadcast({"type": "notify", "icon": "whatsapp",
                                       "title": m.get("name") or m["from"],
                                       "text": m["text"][:200]})
@@ -402,7 +403,8 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                 elif m.get("type") == "mute":
                     await hub.set_muted(bool(m.get("on")))
                 elif m.get("type") == "whatsapp_link":
-                    asyncio.create_task(hub.whatsapp_link())
+                    if hub.linking is None or hub.linking.done():
+                        hub.linking = asyncio.create_task(hub.whatsapp_link())
                 elif m.get("type") == "screenshot":
                     await sock.send_json(await asyncio.to_thread(save_screenshot))
                 elif m.get("type") == "upload":

@@ -59,12 +59,16 @@ def start_helper(data_dir: Path) -> subprocess.Popen | None:
     """Start the helper (needs node and `npm install --prefix desktop/wa`); None if it can't."""
     data_dir = Path(data_dir)
     if not (HELPER.parent / "node_modules").exists():
+        print("[jarvis] WhatsApp helper not installed: run npm install --prefix desktop/wa")
         return None
     (data_dir / "wa" / "port").unlink(missing_ok=True)   # a stale port from a crashed run
     try:
+        # the open stdin pipe is the helper's lifeline: it exits when JARVIS goes away
         return subprocess.Popen(["node", str(HELPER), "--data", str(data_dir)],
+                                stdin=subprocess.PIPE,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except OSError:
+        print("[jarvis] WhatsApp helper couldn't start: is node installed?")
         return None
 
 

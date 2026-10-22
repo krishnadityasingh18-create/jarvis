@@ -5,7 +5,7 @@ export function match(contacts, q) {
   q = String(q ?? "").trim().toLowerCase();
   if (!q) return [];
   const digits = q.replace(/\D/g, "");
-  if (digits.length >= 3 && /^[\d\s+\-()]+$/.test(q)) {
+  if (digits.length >= 7 && /^[\d\s+\-()]+$/.test(q)) {
     return contacts.filter((c) => c.number.replace(/\D/g, "").includes(digits));
   }
   const exact = contacts.filter((c) => (c.name ?? "").toLowerCase() === q);
