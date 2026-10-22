@@ -37,7 +37,8 @@ def _safe_url(url: str) -> str:
     for ip in ips:
         if not ip.is_global:
             raise ValueError("I don't open local or private network addresses")
-    # ponytail: the fetch resolves again (DNS rebinding window); pin the IP if that matters
+    # ponytail: the fetch resolves again (DNS rebinding window); primp 2.0 has no resolve
+    # override or peer address to pin/re-check with, so it stays open until primp gets one
     return url
 
 

@@ -13,6 +13,18 @@ def test_recent_messages_oldest_first_and_limited(tmp_path):
     assert len(r) == 20 and r[0]["content"] == "m5" and r[-1]["content"] == "m24"
 
 
+def test_shared_connection_serialises_statements(tmp_path):
+    import threading
+    c = db.connect(tmp_path / "j.db")
+    with c.lock:   # a tool thread is mid-statement
+        t = threading.Thread(target=db.add_message, args=(c, "user", "hi"))
+        t.start()
+        t.join(0.2)
+        assert t.is_alive()
+    t.join(5)
+    assert db.recent_messages(c)[0]["content"] == "hi"
+
+
 def test_interrupted_flag_roundtrip(tmp_path):
     c = db.connect(tmp_path / "j.db")
     db.add_message(c, "assistant", "Hello sir.", interrupted=True)

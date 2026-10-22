@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -35,10 +36,22 @@ CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
 """
 
 
+class _Conn(sqlite3.Connection):
+    """Shared by the event loop and tool threads (asyncio.to_thread): one statement at a
+    time, so an INSERT's lastrowid can't be another thread's row."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.lock = threading.Lock()
+
+    def execute(self, *a):
+        with self.lock:
+            return super().execute(*a)
+
+
 def connect(path: Path | str) -> sqlite3.Connection:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    # ponytail: one shared connection, autocommit; fine for one user, add a lock if writes ever race
-    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, factory=_Conn)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")  # the file indexer writes from its own connection
     conn.executescript(SCHEMA)

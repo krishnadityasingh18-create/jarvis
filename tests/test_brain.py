@@ -401,6 +401,12 @@ def test_escaped_separator_from_model():
     assert "".join(v for k, v in out[1:] if k == "screen") == "```bash\nhello\n```"
 
 
+def test_escaped_newline_split_across_deltas():
+    sp = Splitter()
+    out = run(sp, "Done, sir.---\\n```bash\\", "nhello\\", "n```")
+    assert "".join(v for k, v in out[1:] if k == "screen") == "```bash\nhello\n```"
+
+
 def test_history_never_starts_with_assistant(conn):
     import json
     db.add_message(conn, "assistant", "Done.", actions=json.dumps(

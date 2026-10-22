@@ -56,10 +56,7 @@ class Splitter:
 
     def feed(self, delta: str) -> list[tuple[str, str]]:
         if self.screen_mode:
-            if self.unescape:
-                # ponytail: misses a backslash and n split across two deltas; rare, cosmetic
-                delta = delta.replace("\\n", "\n")
-            return [("screen", delta)] if delta else []
+            return self._screen(delta)
         self.buf += delta
         if "---\\n" in self.buf:
             self.unescape = True
@@ -73,17 +70,26 @@ class Splitter:
                     continue
                 self.screen_mode = True
                 rest, self.buf = self.buf, ""
-                if rest:
-                    out.append(("screen", rest))
+                out += self._screen(rest)
             else:
                 out += self._sentence(piece)
         return out
 
     def flush(self) -> list[tuple[str, str]]:
         rest, self.buf = self.buf, ""
-        if self.screen_mode or rest.strip() == "---":
+        if self.screen_mode:
+            return [("screen", rest)] if rest else []   # a held-back trailing backslash
+        if rest.strip() == "---":
             return []
         return self._sentence(rest)
+
+    def _screen(self, delta: str) -> list[tuple[str, str]]:
+        if self.unescape:
+            delta, self.buf = self.buf + delta, ""
+            if delta.endswith("\\"):   # its n may come in the next delta: hold it back
+                delta, self.buf = delta[:-1], "\\"
+            delta = delta.replace("\\n", "\n")
+        return [("screen", delta)] if delta else []
 
     def _sentence(self, s: str) -> list[tuple[str, str]]:
         s = s.strip()
