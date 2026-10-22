@@ -85,7 +85,7 @@ def add_message(conn, role: str, content: str, screen: str = "", route: str = ""
 def recent_messages(conn, n: int = 20) -> list[dict]:
     """The current chat's last n messages (the model's memory of this conversation)."""
     rows = conn.execute(
-        "SELECT role,content,screen,route,interrupted,actions,private FROM messages "
+        "SELECT ts,role,content,screen,route,interrupted,actions,private FROM messages "
         "WHERE chat=? ORDER BY id DESC LIMIT ?",
         (current_chat(conn), n)).fetchall()
     return [dict(r) for r in reversed(rows)]

@@ -16,7 +16,7 @@ class S {
   get done() { return Math.abs(this.x - this.t) < .05 && Math.abs(this.v) < .05; }
 }
 export const sp = { w: new S(120), h: new S(38), r: new S(19), ox: new S(4), oy: new S(4), os: new S(28),
-  bx: new S(0), ty: new S(0), ny: new S(10), nw: new S(120), nh: new S(38), lvl: new S(0) };
+  bx: new S(0), ty: new S(0), ny: new S(10), nw: new S(120), nh: new S(38), seg: new S(0), lvl: new S(0) };
 sp.lvl.p = P(.16, .15);
 
 const shell = $("#shell"), orbEl = $("#orb"), mid = $("#mid"), bars = [...document.querySelectorAll("#eq i")];
