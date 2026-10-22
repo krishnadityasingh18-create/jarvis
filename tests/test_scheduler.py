@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, time
 
 from jarvis.app import Hub
+from jarvis.tools import outbound
 
 MON_0700 = datetime(2026, 10, 12, 7, 0)
 
@@ -134,3 +135,24 @@ async def test_no_morning_briefing_in_the_evening(cfg, conn):
     await h.tick(datetime(2026, 10, 12, 23, 0))
     await asyncio.sleep(0)
     assert h.turns == []
+
+
+async def test_call_reminder_phones_my_number_only_when_on_time(cfg, conn, monkeypatch):
+    rang = []
+    monkeypatch.setattr(outbound, "ring_me", lambda cfg, conn, reason: rang.append(reason))
+    h = hub(cfg, conn)
+    conn.execute("INSERT INTO reminders(at, text, call) VALUES('2026-10-12T05:00', 'late', 1)")
+    conn.execute("INSERT INTO reminders(at, text, call) VALUES('2026-10-12T07:00', 'lab', 1)")
+    await h.tick(MON_0700)
+    assert rang == ["A reminder: lab"]
+    assert [m["text"] for m in h.sent] == ["Reminder (late): late", "Reminder: lab"]
+
+
+async def test_call_reminder_without_remote_setup_still_fires(cfg, conn, monkeypatch):
+    monkeypatch.setattr(outbound, "get_key", lambda n: None)
+    cfg.remote = {}
+    h = hub(cfg, conn)
+    conn.execute("INSERT INTO reminders(at, text, call) VALUES('2026-10-12T07:00', 'lab', 1)")
+    await h.tick(MON_0700)
+    texts = [m["text"] for m in h.sent]
+    assert texts[0] == "Reminder: lab" and texts[1].startswith("Couldn't phone you about it: ")

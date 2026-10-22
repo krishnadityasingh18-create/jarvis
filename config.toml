@@ -153,6 +153,7 @@ longitude = 80.04
 # whatsapp_webhook = "https://…/webhook/…" # your n8n workflow that sends WhatsApp messages
 # twilio_sid = "AC…"                      # Twilio Account SID; plus: python -m jarvis keys set twilio_token
 # vapi_credit_usd = 10.0                   # your starting Vapi credit (Vapi has no balance API)
+# usd_inr = 88                             # rupees per dollar, for counting Vapi calls in the budget
 
 # Hardware (Phase 5). A device is data: JARVIS only sends the commands listed here.
 # confirm = true asks first (anything that moves or powers hardware); stop/off never ask.

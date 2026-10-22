@@ -120,6 +120,12 @@ async def test_remind_accepts_offset_times(cfg, conn):
     assert not r.startswith("Error")
 
 
+async def test_remind_can_ask_for_a_call(cfg, conn):
+    r = await run(make_ctx(cfg, conn), call("remind", at="2026-10-12T09:15", text="lab", call=True))
+    assert "call and remind" in r
+    assert conn.execute("SELECT call FROM reminders").fetchone()[0] == 1
+
+
 async def test_plan_from_a_tainted_turn_is_wrapped_in_the_prompt(cfg, conn, monkeypatch):
     ctx = make_ctx(cfg, conn)
     ctx.tainted = True

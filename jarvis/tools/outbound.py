@@ -1,7 +1,9 @@
 """Calls and messages out: Vapi (phone) and the user's n8n WhatsApp workflow."""
 import re
 import ssl
+from datetime import datetime, timedelta
 
+from jarvis import db
 from jarvis.config import get_key
 from jarvis.tools import tool
 
@@ -9,6 +11,7 @@ VAPI_CALL = "https://api.vapi.ai/call"
 TWILIO = "https://api.twilio.com/2010-04-01/Accounts/{sid}/{what}.json"
 _NUMBER = re.compile(r"^\+\d{8,15}$", re.ASCII)   # E.164, as Vapi and WhatsApp need
 MAX_MESSAGE = 500
+USD_INR = 88   # Vapi bills in USD, the budget is in rupees; [remote] usd_inr overrides
 
 
 def _post(url: str, headers: dict, payload: dict) -> dict:
@@ -39,6 +42,43 @@ def _left(name: str, money: str, left: float, costs: list[float]) -> str:
     return f"{name}: {money} {left:.2f} left{calls}"
 
 
+def _cost(c: dict) -> float:
+    """A Vapi call's cost in USD."""
+    return float(c.get("cost") or sum(x.get("cost", 0) for x in c.get("costs", [])))
+
+
+def _meter(conn, c: dict) -> None:
+    """Count a placed call on the usage meter, like an LLM request; its id is kept (in the
+    model column) so settle_calls can add the minutes and cost once the call has ended."""
+    db.record_usage(conn, "vapi", c.get("id", ""), 0, 0, 0)
+
+
+def settle_calls(cfg, conn) -> None:
+    """Every scheduler tick: ask Vapi about the past day's unfinished metered calls and add
+    each ended one's length and cost. One Vapi never reports as ended stays a counted call
+    with unknown minutes."""
+    since = (datetime.now() - timedelta(days=1)).isoformat()
+    rows = conn.execute("SELECT id, model FROM usage WHERE provider='vapi' AND seconds IS NULL "
+                        "AND model != '' AND ts > ?", (since,)).fetchall()
+    key = get_key("vapi_key") if rows else None
+    if not key:
+        return
+    rate = float((getattr(cfg, "remote", {}) or {}).get("usd_inr", USD_INR))
+    for rid, cid in rows:
+        try:
+            c = _get(f"{VAPI_CALL}/{cid}", {"Authorization": f"Bearer {key}"})
+        except Exception:
+            continue   # try again next tick
+        if c.get("status") != "ended":
+            continue
+        seconds = 0.0   # no start time: it never connected
+        if c.get("startedAt") and c.get("endedAt"):
+            seconds = (datetime.fromisoformat(c["endedAt"])
+                       - datetime.fromisoformat(c["startedAt"])).total_seconds()
+        conn.execute("UPDATE usage SET seconds=?, cost_inr=? WHERE id=?",
+                     (seconds, _cost(c) * rate, rid))
+
+
 def credits_note(cfg) -> str:
     """What's left on Twilio and Vapi, and how many calls that is. Shown when JARVIS calls.
     Twilio reports its balance; Vapi doesn't, so it's [remote] vapi_credit_usd minus
@@ -60,8 +100,7 @@ def credits_note(cfg) -> str:
     if vkey and r.get("vapi_credit_usd"):
         try:
             calls = _get(VAPI_CALL + "?limit=1000", {"Authorization": f"Bearer {vkey}"})
-            costs = [float(c.get("cost") or sum(x.get("cost", 0) for x in c.get("costs", [])))
-                     for c in calls]
+            costs = [_cost(c) for c in calls]
             parts.append(_left("Vapi", "USD", float(r["vapi_credit_usd"]) - sum(costs), costs))
         except Exception as e:
             parts.append(f"Vapi: couldn't check ({e})")
@@ -100,11 +139,19 @@ def _vapi_call(s: dict, number: str, assistant: str, first: str) -> dict:
 @tool("Phone the user (their own number) through Vapi, e.g. when they ask to be called "
       "about something.", exports=True, reason="string: what the call is about")
 def call_me(ctx, reason):
-    s = _need(ctx.cfg, "vapi_key", "vapi_phone_id", "vapi_assistant_id", "my_number")
+    cid = ring_me(ctx.cfg, ctx.conn, reason)
+    # the UI shows the line after "Credits — " in the transcript
+    return f"Calling you now ({cid}).\nCredits — {credits_note(ctx.cfg)}", None
+
+
+def ring_me(cfg, conn, reason: str) -> str:
+    """Phone the user's own number (never asks: it's their phone; also used by reminders
+    set with call=true). Returns the Vapi call id."""
+    s = _need(cfg, "vapi_key", "vapi_phone_id", "vapi_assistant_id", "my_number")
     c = _vapi_call(s, _number(s["my_number"]), s["vapi_assistant_id"],
                    f"Hello sir, it's JARVIS. {reason}")
-    # the UI shows the line after "Credits — " in the transcript
-    return f"Calling you now ({c.get('id', 'call started')}).\nCredits — {credits_note(ctx.cfg)}", None
+    _meter(conn, c)
+    return c.get("id", "call started")
 
 
 @tool("Phone someone else for the user. Only when the user asks; JARVIS reads the number and "
@@ -122,6 +169,7 @@ def place_call(ctx, number, purpose):
         "assistantOverrides": {"variableValues": {"purpose": purpose},
                                "firstMessage": "Hello, I'm an assistant calling on someone's "
                                                f"behalf about this: {purpose}."}})
+    _meter(ctx.conn, c)
     return f"Calling {n} ({c.get('id', 'call started')}).", None
 
 
