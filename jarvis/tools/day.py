@@ -129,8 +129,9 @@ def list_tasks(ctx):
 
 # not local_only: a reminder is spoken in JARVIS's own voice, so outside text mustn't set one
 @tool("Set a reminder that JARVIS speaks at the given time.",
-      at="string: local date and time, YYYY-MM-DDTHH:MM", text="string: what to remind")
-def remind(ctx, at, text):
+      at="string: local date and time, YYYY-MM-DDTHH:MM", text="string: what to remind",
+      call="?boolean: also phone the user's own number then (only if they ask to be called)")
+def remind(ctx, at, text, call=False):
     if len(text) > 200:
         raise ValueError("keep the reminder under 200 characters")
     try:
@@ -141,9 +142,11 @@ def remind(ctx, at, text):
         when = when.astimezone().replace(tzinfo=None)
     if when < now() - timedelta(minutes=1):
         raise ValueError("that time has already passed")
-    rid = ctx.conn.execute("INSERT INTO reminders(at, text) VALUES(?,?)",
-                           (when.isoformat(timespec="minutes"), text)).lastrowid
-    return f"I'll remind you at {when:%H:%M} on {when:%a %d %b}: {text}", \
+    call = str(call).lower() == "true"
+    rid = ctx.conn.execute("INSERT INTO reminders(at, text, call) VALUES(?,?,?)",
+                           (when.isoformat(timespec="minutes"), text, int(call))).lastrowid
+    return f"I'll {'call and ' if call else ''}remind you at {when:%H:%M} on " \
+        f"{when:%a %d %b}: {text}", \
         {"kind": "delete_row", "table": "reminders", "id": rid}
 
 

@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from jarvis import brain, db, remote, tools
+from jarvis.tools import outbound
 
 UI = Path(__file__).parent / "ui"
 ALLOWED_ORIGINS = {"http://127.0.0.1:8765", "http://localhost:8765"}
@@ -149,15 +150,24 @@ class Hub:
             from jarvis.voice import State
             if self.voice.fsm.state is not State.IDLE:
                 return   # the user is talking, or JARVIS is: wait
-        due = self.conn.execute("SELECT id, at, text FROM reminders WHERE done=0 AND at <= ? "
-                                "ORDER BY at", (now.isoformat(timespec="minutes"),)).fetchall()
-        for rid, at, text in due:
+        await asyncio.to_thread(outbound.settle_calls, self.cfg, self.conn)
+        due = self.conn.execute("SELECT id, at, text, call FROM reminders WHERE done=0 AND "
+                                "at <= ? ORDER BY at",
+                                (now.isoformat(timespec="minutes"),)).fetchall()
+        for rid, at, text, phone in due:
             self.conn.execute("UPDATE reminders SET done=1 WHERE id=?", (rid,))
             late = datetime.fromisoformat(at) < now - timedelta(minutes=5)
             await self.broadcast({"type": "banner",
                                   "text": f"Reminder{' (late)' if late else ''}: {text}"})
             if self.voice:
                 await self.voice.speak(f"{'A late reminder' if late else 'Reminder'}, sir: {text}")
+            if phone and not late:   # a late one was missed while JARVIS was off: no call
+                try:
+                    await asyncio.to_thread(outbound.ring_me, self.cfg, self.conn,
+                                            f"A reminder: {text}")
+                except Exception as e:
+                    await self.broadcast({"type": "banner",
+                                          "text": f"Couldn't phone you about it: {e}"})
         if due or not self.cfg.briefing_enabled or \
                 not self.cfg.briefing_time <= now.time() < self.BRIEFING_UNTIL:
             return

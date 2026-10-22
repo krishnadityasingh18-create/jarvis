@@ -51,6 +51,11 @@ def connect(path: Path | str) -> sqlite3.Connection:
         conn.execute("ALTER TABLE messages ADD COLUMN chat INTEGER DEFAULT 0")
     if "tainted" not in [r[1] for r in conn.execute("PRAGMA table_info(plans)")]:
         conn.execute("ALTER TABLE plans ADD COLUMN tainted INTEGER DEFAULT 0")
+    if "call" not in [r[1] for r in conn.execute("PRAGMA table_info(reminders)")]:
+        conn.execute("ALTER TABLE reminders ADD COLUMN call INTEGER DEFAULT 0")
+    if "seconds" not in [r[1] for r in conn.execute("PRAGMA table_info(usage)")]:
+        # phone calls: their length once Vapi reports them ended (NULL until then)
+        conn.execute("ALTER TABLE usage ADD COLUMN seconds REAL")
     return conn
 
 

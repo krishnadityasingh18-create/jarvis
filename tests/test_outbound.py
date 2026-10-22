@@ -1,5 +1,6 @@
 import pytest
 
+from jarvis import db
 from jarvis.tools import TOOLS, outbound, run
 from tests.test_tools import call, make_ctx
 
@@ -117,3 +118,34 @@ def test_credits_note_says_what_to_set_and_survives_errors(cfg, monkeypatch):
     note = outbound.credits_note(cfg)
     assert "Twilio: couldn't check (api.twilio.com answered 401)" in note
     assert "vapi_credit_usd" in note
+
+
+async def test_calls_are_metered_then_settled_with_vapi_minutes_and_cost(cfg, conn, setup,
+                                                                         monkeypatch):
+    await run(make_ctx(cfg, conn), call("call_me", reason="x"))
+    assert db.requests_today(conn)["vapi"] == 1          # counted like an LLM request
+    asked = []
+
+    def get(url, headers=None, auth=None):
+        asked.append(url)
+        if len(asked) == 1:
+            return {"id": "call_1", "status": "in-progress"}
+        return {"id": "call_1", "status": "ended", "cost": 0.5,
+                "startedAt": "2026-10-12T07:00:00.000Z", "endedAt": "2026-10-12T07:02:30.000Z"}
+    monkeypatch.setattr(outbound, "_get", get)
+    cfg.remote["usd_inr"] = 80
+    outbound.settle_calls(cfg, conn)                     # still talking: nothing yet
+    assert db.month_spend_inr(conn) == 0
+    outbound.settle_calls(cfg, conn)
+    outbound.settle_calls(cfg, conn)                     # settled: not asked again
+    assert asked == ["https://api.vapi.ai/call/call_1"] * 2
+    assert conn.execute("SELECT seconds FROM usage WHERE provider='vapi'").fetchone()[0] == 150
+    assert db.month_spend_inr(conn) == 40
+
+
+def test_unanswered_call_counts_no_invented_minutes(cfg, conn, monkeypatch):
+    monkeypatch.setattr(outbound, "get_key", lambda n: "vk")
+    monkeypatch.setattr(outbound, "_get", lambda url, headers=None: {"status": "ended"})
+    outbound._meter(conn, {"id": "c2"})
+    outbound.settle_calls(cfg, conn)
+    assert tuple(conn.execute("SELECT seconds, cost_inr FROM usage").fetchone()) == (0, 0)
