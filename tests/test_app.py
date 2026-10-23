@@ -539,3 +539,25 @@ def test_keep_with_nothing_says_so(cfg, conn):
         seen = recv_until(ws, lambda m: m["type"] == "banner")
         ctx.__exit__(None, None, None)
     assert seen[-1]["text"] == "Nothing to keep"
+
+
+def test_island_mic_button_is_push_to_talk(cfg, conn):
+    voice = FakeVoice()
+    with TestClient(create_app(cfg, conn, voice=voice)) as client:
+        assert client.get("/island").status_code == 200
+        ctx, ws = connect(client)
+        ws.send_json({"type": "ptt", "down": True})
+        ws.send_json({"type": "ptt", "down": False})
+        ws.send_json({"type": "mute", "on": False})   # replies, so the ptts were handled
+        recv_until(ws, lambda m: m["type"] == "mic")
+        ctx.__exit__(None, None, None)
+    assert voice.events == ["hotkey_down", "hotkey_up"]
+
+
+def test_island_ptt_without_voice_is_ignored(cfg, conn):
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "ptt", "down": True})
+        ws.send_json({"type": "mute", "on": False})
+        recv_until(ws, lambda m: m["type"] == "mic")
+        ctx.__exit__(None, None, None)

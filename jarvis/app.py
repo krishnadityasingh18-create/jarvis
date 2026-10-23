@@ -507,6 +507,9 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                     await hub.switch_chat(None)
                 elif m.get("type") == "open_chat" and isinstance(m.get("id"), int):
                     await hub.switch_chat(m["id"])
+                elif m.get("type") == "ptt":   # the island's mic button: same as Right Ctrl
+                    if hub.voice:
+                        hub.voice.event("hotkey_down" if m.get("down") else "hotkey_up")
                 elif m.get("type") == "mute":
                     await hub.set_muted(bool(m.get("on")))
                 elif m.get("type") == "whatsapp_link":

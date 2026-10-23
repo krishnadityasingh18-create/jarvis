@@ -19,11 +19,13 @@ const darkMode = matchMedia("(prefers-color-scheme: dark)");
 
 // everything the renderer reads; only anime.js (and the clock) writes it
 const m = { spin: .08, bright: .35, energy: 0, scale: .85, rot: 0, fade: 0 };
-let speech = null, state = "off", layers = [], built = 0;
+let speech = null, state = "off", layers = [], built = 0, canvasEl = null;
 
 function fit(c) {
-  const r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1;
-  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  // layout size, not the on-screen rect: a transform (the island scales its orb) must not
+  // resize the canvas and rebuild the blurred layers every frame of the animation
+  const dpr = devicePixelRatio || 1;
+  const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
   if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
   return [w, h];
 }
@@ -68,7 +70,7 @@ function draw(cx, t) {
 
 /** Start the loop. visible(): whether the orb is on screen; color(css): the UI accent. */
 export function start(canvas, { visible, color }) {
-  color(ACCENT);
+  color(ACCENT); canvasEl = canvas;
   const cx = canvas.getContext("2d");
   createTimer({ onUpdate: self => {
     m.rot += m.spin * Math.min(.05, self.deltaTime / 1000);   // integrated: speed changes never jump
@@ -90,3 +92,6 @@ export function setState(s) {
                           ease: "inOutSine", loop: true, onLoop: a => a.refresh() });
   } else animate(m, { energy: reduced ? 0 : energy, duration: 600, ease: "inOutSine" });
 }
+
+/** A CSS filter on the orb (the island tints it per state: cool listening, warm thinking). */
+export function setFilter(css) { if (canvasEl) canvasEl.style.filter = css; }

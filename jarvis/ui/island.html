@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS Island</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/ui/island.css">
+</head>
+<body class="st-off">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="gooey"><feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b"/>
+    <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter>
+</svg>
+
+<div id="goo"><div id="gPill"></div><div id="gBub"></div><div id="gNote"></div></div>
+<div id="glow"></div><div id="rim"></div><div id="cometGlow"></div><div id="comet"></div>
+
+<div id="shell" role="button" aria-label="JARVIS">
+  <div id="orb"><canvas></canvas></div>
+
+  <div id="collapsed">
+    <div id="mid" aria-live="polite"></div>
+    <div id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="peek"></div>
+    <button class="mic" id="cmic" type="button" aria-label="Hold to talk"><span class="lvl"></span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+  </div>
+
+  <div id="confirm" role="alertdialog" aria-labelledby="ck" aria-describedby="cmsg">
+    <div class="k" id="ck"></div>
+    <div class="msg" id="cmsg"></div>
+    <div class="btns"><button class="btn" type="button" data-act="cancel">Cancel</button><button class="btn go" type="button" data-act="ok">Send</button></div>
+  </div>
+
+  <div id="panel" aria-label="JARVIS panel">
+    <div class="head">
+      <div class="t"><h1>JARVIS</h1><div class="s" id="stat">Offline</div></div>
+      <button class="ib" id="full" type="button" title="Full view" aria-label="Full view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+      <button class="ib" id="close" type="button" title="Collapse" aria-label="Collapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 15 6-6 6 6"/></svg></button>
+    </div>
+
+    <div class="glance" id="glance"></div>
+
+    <div class="seg" id="seg" role="tablist"><div class="pill"></div>
+      <button class="on" type="button" role="tab" aria-selected="true" data-v="chat">Chat</button><button type="button" role="tab" aria-selected="false" data-v="art">Artifacts</button><button type="button" role="tab" aria-selected="false" data-v="vault">Vault</button></div>
+
+    <div class="body">
+      <div class="view on" id="v-chat" role="tabpanel">
+        <div class="recent" id="chips"></div>
+        <div id="thread"></div>
+      </div>
+      <div class="view" id="v-art" role="tabpanel"><div class="grid" id="grid"></div></div>
+      <div class="view" id="v-vault" role="tabpanel">
+        <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="vq" type="search" placeholder="Search the vault" aria-label="Search the vault"></label>
+        <div class="drop">Drop files or text on the island, or say “keep this”</div>
+        <div id="vlist"></div>
+        <div id="walink" hidden></div>
+      </div>
+      <div id="ptoast" role="status"></div>
+    </div>
+
+    <div class="bar"><input class="in" id="text" type="text" placeholder="Ask JARVIS…" aria-label="Ask JARVIS" autocomplete="off">
+      <button class="mic" id="pmic" type="button" aria-label="Hold to talk"><span class="lvl"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div>
+  </div>
+</div>
+
+<div id="bub" aria-hidden="true"><svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="14" fill="none" stroke-width="4"/><circle id="arc" cx="18" cy="18" r="14" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="88" stroke-dashoffset="0"/></svg></div>
+<div id="note" role="status"><div class="ic"></div><div style="min-width:0"><div class="n"></div><div class="k"></div></div></div>
+
+<script src="/ui/marked.min.js"></script>
+<script src="/ui/purify.min.js"></script>
+<!-- panel.js imports island.js: one module graph, so no socket message lands before both are wired -->
+<script type="module" src="/ui/panel.js"></script>
+</body>
+</html>
