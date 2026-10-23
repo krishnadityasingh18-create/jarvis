@@ -108,3 +108,10 @@ def test_glance_asks_for_the_weather_once_per_ttl(cfg, conn, monkeypatch):
     artifacts.glance(cfg, conn)
     artifacts.glance(cfg, conn)
     assert len(calls) == 1
+
+
+def test_commit_whose_path_is_a_file_does_not_exist(cfg, conn, tmp_path):
+    (tmp_path / "f").write_text("x")
+    db.log_action(conn, "ask_claude", {"task": "x", "project": str(tmp_path / "f")},
+                  "Commits in f:\nabc msg", "done", None, None)
+    assert artifacts.items(conn)[0]["exists"] is False

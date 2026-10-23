@@ -583,3 +583,18 @@ def test_transcript_turn_is_started_untyped(cfg, conn):
         recv_until(ws, lambda m: m["type"] == "turn_end" and len(seen) == 2)
         ctx.__exit__(None, None, None)
     assert seen == [("what time is it", False), ("typed", True)]
+
+
+def test_keep_with_data_that_is_a_duplicate_deletes_its_own_copy(cfg, conn, tmp_path, monkeypatch):
+    import base64
+    monkeypatch.setattr("jarvis.app.UPLOADS", tmp_path)
+    cfg.file_roots, cfg.app_dir = [tmp_path], tmp_path / "app"
+    data = base64.b64encode(b"hello").decode()
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "keep", "name": "n.txt", "data": data})
+        recv_until(ws, lambda m: m["type"] == "vault")
+        ws.send_json({"type": "keep", "name": "n.txt", "data": data})   # same bytes again
+        recv_until(ws, lambda m: m["type"] == "action" and m["status"] == "done")
+        ctx.__exit__(None, None, None)
+    assert sorted(p.name for p in tmp_path.glob("n*.txt")) == ["n.txt"]

@@ -21,8 +21,9 @@ def _preview(p: Path) -> str:
         return ""
 
 
-def _exists(path: str) -> bool:
-    return Path(path).is_absolute() and Path(path).exists()   # never resolve a bare name against the cwd
+def _exists(path: str, kind: str = "file") -> bool:
+    p = Path(path)   # never resolve a bare name against the cwd
+    return p.is_absolute() and (p.is_dir() if kind == "commit" else p.exists())
 
 
 def _entry(a: dict) -> tuple[str, str, str, str] | None:
@@ -56,7 +57,7 @@ def items(conn, n: int = 24) -> list[dict]:
         seen.add(e[2])
         # previews are read only for the rows that make the cut
         out.append({"id": a["id"], "kind": e[0], "title": e[1], "path": e[2], "preview": e[3],
-                    "ts": a["ts"], "exists": _exists(e[2])})
+                    "ts": a["ts"], "exists": _exists(e[2], e[0])})
         if len(out) == n:
             break
     for it in out:
@@ -69,7 +70,7 @@ def get(conn, item_id: int) -> dict | None:
     """One artifact by action id (no preview); None if it isn't an artifact."""
     r = conn.execute("SELECT * FROM actions WHERE id=? AND status='done'", (item_id,)).fetchone()
     e = r and _entry(db._action(r))
-    return e and {"id": item_id, "kind": e[0], "title": e[1], "path": e[2], "exists": _exists(e[2])}
+    return e and {"id": item_id, "kind": e[0], "title": e[1], "path": e[2], "exists": _exists(e[2], e[0])}
 
 
 def _slug(title: str) -> str:

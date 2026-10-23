@@ -88,7 +88,9 @@ class Hub:
             if up["type"] != "uploaded":
                 await self.broadcast(up)
                 return
-            await self.desk_run("keep", path=up["path"])
+            r = await self.desk_run("keep", path=up["path"])
+            if not r.startswith("Kept "):   # duplicate or declined: drop the copy we just made
+                Path(up["path"]).unlink(missing_ok=True)
         elif m.get("text"):
             await self.desk_run("keep", text=str(m["text"]))
         else:
@@ -121,7 +123,8 @@ class Hub:
         try:
             await (sock.send_json(msg) if sock else self.broadcast(msg))
         except Exception:
-            self.sockets.discard(sock)   # that window went away
+            if sock:
+                self.sockets.discard(sock)   # that window went away
 
     async def send_island_data(self, sock: WebSocket) -> None:
         await sock.send_json(self.vault())
