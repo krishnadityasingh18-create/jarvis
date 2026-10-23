@@ -344,9 +344,9 @@ class Hub:
         args = (self.cfg, self.conn, text, brain.pick_route(text, self.route), self.broadcast)
         if self.voice:
             coro = self.turn_runner(*args, self.voice.speak, prepare=self.voice.prepare,
-                                    confirm=self.confirm)
+                                    confirm=self.confirm, typed=typed)
         else:
-            coro = self.turn_runner(*args, _no_speak, confirm=self.confirm)
+            coro = self.turn_runner(*args, _no_speak, confirm=self.confirm, typed=typed)
         self.turn = asyncio.create_task(coro)
 
     async def cancel(self) -> None:

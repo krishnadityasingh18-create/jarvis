@@ -555,9 +555,31 @@ def test_island_mic_button_is_push_to_talk(cfg, conn):
 
 
 def test_island_ptt_without_voice_is_ignored(cfg, conn):
-    with TestClient(create_app(cfg, conn)) as client:
+    app = create_app(cfg, conn)
+    with TestClient(app) as client:
         ctx, ws = connect(client)
         ws.send_json({"type": "ptt", "down": True})
         ws.send_json({"type": "mute", "on": False})
-        recv_until(ws, lambda m: m["type"] == "mic")
+        mic = recv_until(ws, lambda m: m["type"] == "mic")[-1]
+        ws.send_json({"type": "mute", "on": True})   # the socket still answers after the ptt
+        assert recv_until(ws, lambda m: m["type"] == "mic")[-1]["type"] == "mic"
         ctx.__exit__(None, None, None)
+    assert app.state.hub.voice is None and mic["available"] is False
+
+
+def test_transcript_turn_is_started_untyped(cfg, conn):
+    seen = []
+
+    async def fake(cfg, conn, text, route, emit, speak, **kw):
+        seen.append((text, kw["typed"]))
+        await emit({"type": "turn_end"})
+
+    app = create_app(cfg, conn, turn_runner=fake)
+    with TestClient(app) as client:
+        ctx, ws = connect(client)
+        hub = app.state.hub
+        hub.from_thread("transcript", {"text": "what time is it"})
+        ws.send_json({"type": "text_input", "text": "typed"})
+        recv_until(ws, lambda m: m["type"] == "turn_end" and len(seen) == 2)
+        ctx.__exit__(None, None, None)
+    assert seen == [("what time is it", False), ("typed", True)]

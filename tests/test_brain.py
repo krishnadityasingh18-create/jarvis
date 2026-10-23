@@ -464,3 +464,14 @@ async def test_signature_carried_into_next_step(cfg, conn, monkeypatch):
     await brain.run_turn(cfg, conn, "remember x", "reasoning", noop_emit, speak)
     call = seen[1]["messages"][-2]["tool_calls"][0]
     assert call["extra_content"] == sig
+
+
+async def test_voice_turn_stores_user_message_with_voice_route(cfg, conn, monkeypatch):
+    monkeypatch.setattr(brain, "stream_reply", lambda *a, **k: iter([("route", "fast"), ("text", "Ok sir.")]))
+
+    async def speak(s):
+        pass
+    await brain.run_turn(cfg, conn, "typed one", "fast", noop_emit, speak)
+    await brain.run_turn(cfg, conn, "spoken one", "fast", noop_emit, speak, typed=False)
+    users = {m["content"]: m["route"] for m in db.recent_messages(conn) if m["role"] == "user"}
+    assert users == {"typed one": "", "spoken one": "voice"}
