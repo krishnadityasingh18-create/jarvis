@@ -11,6 +11,7 @@ VAPI_CALL = "https://api.vapi.ai/call"
 TWILIO = "https://api.twilio.com/2010-04-01/Accounts/{sid}/{what}.json"
 _NUMBER = re.compile(r"^\+\d{8,15}$", re.ASCII)   # E.164, as Vapi and WhatsApp need
 MAX_MESSAGE = 500
+SELF = {"me", "myself", "self", "my number", "my own number"}   # send_whatsapp to the user
 USD_INR = 88   # Vapi bills in USD, the budget is in rupees; [remote] usd_inr overrides
 
 
@@ -192,6 +193,11 @@ def _wa_prepare(ctx, args: dict) -> dict:
     if ctx.conn.execute("SELECT COUNT(*) FROM actions WHERE tool='send_whatsapp' AND "
                         "status='done' AND ts > ?", (since,)).fetchone()[0] >= whatsapp.HOURLY_CAP:
         raise ValueError(f"That's {whatsapp.HOURLY_CAP} messages this hour; I'll wait, sir.")
+    if to.strip().lower() in SELF:   # the linked account's own number
+        c = _linked(ctx)
+        if not (me := c and (c.status() or {}).get("me")):
+            raise ValueError("WhatsApp isn't linked, so I don't know your own number, sir.")
+        return {"to": me, "text": text, "name": "you"}
     try:
         return {"to": _number(to), "text": text, "name": ""}
     except ValueError:
@@ -219,7 +225,7 @@ def _wa_prepare(ctx, args: dict) -> dict:
       describe=lambda a: (f"send WhatsApp to {a['name']} ({a['to']}): '{a.get('text', '')}'"
                           if a.get("name") else
                           f"send WhatsApp to {a.get('to', '')}: '{a.get('text', '')}'"),
-      to="string: contact name, or phone number with country code",
+      to="string: contact name, phone number with country code, or 'myself'",
       text="string: the message")
 def send_whatsapp(ctx, to, text, name=""):
     n = _number(to)

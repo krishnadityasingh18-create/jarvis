@@ -129,3 +129,12 @@ test("a failing QR render doesn't break /status", async () => {
   assert.equal((await get("/status"))[0], 200);
   api.close();
 });
+
+test("linked status names the user's own number (device suffix dropped)", async () => {
+  const sock = fakeSock(async () => ({}));
+  sock.user = { id: "919876543210:12@s.whatsapp.net" };
+  const { api, get } = await start(sock);
+  sock.ev.emit("connection.update", { connection: "open" });
+  assert.deepEqual((await get("/status"))[1], { state: "linked", qr: null, me: "+919876543210" });
+  api.close();
+});

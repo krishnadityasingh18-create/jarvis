@@ -87,7 +87,11 @@ export function createServer({ sock, token, ackMs = 15000 }) {
     const out = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
     if (auth.length !== want.length || !crypto.timingSafeEqual(auth, want)) return out(401, { error: "unauthorized" });
     const url = new URL(req.url, "http://x");
-    if (req.method === "GET" && url.pathname === "/status") { await pending; return out(200, qrText ? { state, qr, qr_text: qrText } : { state, qr }); }  // qr_text: for the terminal CLI
+    if (req.method === "GET" && url.pathname === "/status") {
+      await pending;
+      const me = state === "linked" && cur?.user?.id ? person(cur.user.id) : undefined;   // "send it to myself"
+      return out(200, qrText ? { state, qr, qr_text: qrText } : { state, qr, me });   // qr_text: for the terminal CLI
+    }
     if (req.method === "GET" && url.pathname === "/contacts")
       return out(200, { matches: match([...contacts.values()], url.searchParams.get("q")) });
     if (req.method === "GET" && url.pathname === "/replies") {

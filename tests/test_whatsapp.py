@@ -13,7 +13,7 @@ class FakeClient:
         self._send = send or {"ok": True, "id": "A1"}
 
     def status(self):
-        return {"state": self.state}
+        return {"state": self.state, "me": "+919000000001"}
 
     state = "linked"
 
@@ -43,6 +43,21 @@ async def test_e164_sends_without_lookup(cfg, conn, helper):
     assert helper.looked_up == [] and helper.sent == [("+911234567890", "Running late")]
     assert ctx.asked == ["Send WhatsApp to +911234567890: 'Running late', sir?"]
     assert "sent" in r.lower()
+
+
+@pytest.mark.parametrize("to", ["myself", "Me", "self"])
+async def test_myself_is_the_linked_number(cfg, conn, helper, to):
+    ctx = make_ctx(cfg, conn)
+    await run(ctx, call("send_whatsapp", to=to, text="test"))
+    assert helper.looked_up == [] and helper.sent == [("+919000000001", "test")]
+    assert ctx.asked == ["Send WhatsApp to you (+919000000001): 'test', sir?"]
+
+
+async def test_myself_when_unlinked_says_so(cfg, conn, helper):
+    helper.state = "qr"
+    ctx = make_ctx(cfg, conn)
+    r = await run(ctx, call("send_whatsapp", to="myself", text="test"))
+    assert "isn't linked" in r and helper.sent == []
 
 
 async def test_two_matches_asks_which_and_asks_nothing(cfg, conn, helper):
