@@ -138,9 +138,13 @@ def open_island(popen=subprocess.Popen) -> None:
         print("[jarvis] island not installed; run: npm install --prefix desktop")
         return open_full_view()
     wait_for_server()
+    live = []   # Electron isn't tied to this process: end it when JARVIS exits (Ctrl+C included)
+    atexit.register(lambda: [p.terminate() for p in live])
     for _ in range(2):
-        if popen([str(ELECTRON), str(DESKTOP)]).wait() == 0:
+        live[:] = [popen([str(ELECTRON), str(DESKTOP)])]
+        if live[0].wait() == 0:
             return
+    open_full_view()   # crashed twice: keep a UI on screen
 
 
 def hook_hotkey(voice, key: str) -> None:
