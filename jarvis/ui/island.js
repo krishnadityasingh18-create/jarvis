@@ -219,7 +219,7 @@ let confirmId = null;
 export const confirming = () => confirmId !== null;   // a server question is up: drops must not replace it
 function confirmQuestion(m) {
   confirmId = m.id;
-  const text = String(m.text ?? ""), hit = /^send whatsapp to (.+?): ['"“](.*)['"”]$/is.exec(text.trim()), wa = !!hit;
+  const text = String(m.text ?? ""), hit = /^send whatsapp to (.+?): ['"“](.*)['"”](?:,\s*sir\?)?$/is.exec(text.trim()), wa = !!hit;
   const msg = hit ? ["To ", el("b", null, hit[1]), ": ", el("i", null, `“${hit[2]}”`)] : [text];
   askCard({ kind: wa ? "WhatsApp · from your number" : "JARVIS asks", msg, ok: wa ? "Send" : "Allow", wa,
             onAnswer: ok => send({ type: "confirm_reply", id: m.id, ok }) });

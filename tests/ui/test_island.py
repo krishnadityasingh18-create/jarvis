@@ -72,8 +72,20 @@ def test_each_state_sets_the_body_class(island, state):
         assert island.inner_text("#mid") == "Thinking"
 
 
+# exactly what tools.run asks for a send_whatsapp (see tests/test_whatsapp.py)
+_phrase = "send WhatsApp to Rahul K (+912222222222): 'hi'"
+WA_QUESTION = f"{_phrase[0].upper()}{_phrase[1:]}, sir?"
+
+
+def test_the_real_whatsapp_question_gets_the_whatsapp_card(island):
+    island.push({"type": "confirm", "id": "w1", "text": WA_QUESTION, "seconds": 60})
+    island.wait_for_function("() => document.querySelector('#confirm .go')?.classList.contains('wa')")
+    assert "Rahul K (+912222222222)" in island.inner_text("#cmsg") and "hi" in island.inner_text("#cmsg")
+    assert "sir" not in island.inner_text("#cmsg")
+
+
 def test_confirm_card_sends_the_answer(island):
-    island.push({"type": "confirm", "id": "c1", "text": "send WhatsApp to Rahul: 'late'", "seconds": 60})
+    island.push({"type": "confirm", "id": "c1", "text": WA_QUESTION, "seconds": 60})
     island.wait_for_selector("#confirm.on")
     island.click("#confirm .go")
     island.wait_for_function("() => !document.querySelector('#confirm.on')")
@@ -138,7 +150,7 @@ def test_whatsapp_styling_follows_the_send_pattern_not_the_word(island):
     island.push({"type": "confirm", "id": "c3", "text": "Open the WhatsApp settings, sir?", "seconds": 60})
     island.wait_for_selector("#confirm.on")
     assert not island.eval_on_selector("#confirm .go", "e => e.classList.contains('wa')")
-    island.push({"type": "confirm", "id": "c4", "text": "send WhatsApp to Rahul: 'late'", "seconds": 60})
+    island.push({"type": "confirm", "id": "c4", "text": WA_QUESTION, "seconds": 60})
     island.wait_for_function("() => document.querySelector('#confirm .go').classList.contains('wa')")
 
 
@@ -152,14 +164,15 @@ def _wa(result):
                         "result": result}])
 
 
-def test_history_marks_a_send_failed_only_when_the_result_starts_with_error(island):
+def test_history_marks_a_send_sent_only_for_the_success_line(island):
     ts = "2026-10-23T09:00:00"
     _history(island, [
         {"role": "assistant", "content": "a", "screen": "", "ts": ts, "route": "fast", "actions": _wa("Error: helper down")},
-        {"role": "assistant", "content": "b", "screen": "", "ts": ts, "route": "fast", "actions": _wa("Message delivered to Rahul")},
+        {"role": "assistant", "content": "b", "screen": "", "ts": ts, "route": "fast", "actions": _wa("WhatsApp sent to Rahul K.")},
         {"role": "assistant", "content": "c", "screen": "", "ts": ts, "route": "fast", "actions": _wa("I could not say it was sent")},
+        {"role": "assistant", "content": "d", "screen": "", "ts": ts, "route": "fast", "actions": _wa("The user declined.")},
     ])
-    assert island.eval_on_selector_all("#thread .wa", "es => es.map(e => e.classList.contains('failed'))")         == [True, False, False]
+    assert island.eval_on_selector_all("#thread .wa", "es => es.map(e => e.classList.contains('failed'))")         == [True, False, True, True]
 
 
 def test_history_shows_the_mic_for_voice_user_messages(island):
@@ -192,3 +205,19 @@ def test_the_page_reports_the_island_rect_to_electron(island):
     island.wait_for_timeout(900)
     r = island.evaluate("() => window.__rects[window.__rects.length - 1]")
     assert r["w"] == 440 and r["h"] == 600   # follows the layout when it opens
+
+
+@pytest.mark.parametrize("status,result,failed", [
+    ("done", "WhatsApp sent to Rahul K.", False), ("declined", "The user declined.", True),
+    ("failed", "Error: helper down", True), ("failed", "", True)])
+def test_live_send_card_is_sent_only_for_the_success_line(island, status, result, failed):
+    island.push({"type": "action", "tool": "send_whatsapp", "args": {"to": "Rahul", "text": "late"},
+                 "status": status, "result": result})
+    island.wait_for_selector("#thread .wa", state="attached")
+    assert island.eval_on_selector("#thread .wa", "e => e.classList.contains('failed')") is failed
+
+
+def test_link_row_says_how_to_install_a_missing_helper(island):
+    island.push({"type": "whatsapp", "state": "missing", "qr": ""})
+    island.wait_for_function("() => document.querySelector('#walink').textContent.includes('npm install --prefix desktop/wa')")
+    assert island.locator("#walink button").count() == 0

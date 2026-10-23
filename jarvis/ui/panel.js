@@ -80,7 +80,7 @@ const thread = $("#thread"), view = $("#v-chat");
 let current = null, heardByVoice = false, chatsMsg = null;
 const toBottom = () => { view.scrollTop = view.scrollHeight; };   // live turns always follow
 function waCard(args, result) {
-  const sent = !/^error/i.test(String(result || "").trim());   // tools.run records a failure as "Error: ..."
+  const sent = /^WhatsApp sent to /.test(String(result || "").trim());   // the tool's success line; anything else (error, declined, none) was not sent
   const c = el("div", "wa" + (sent ? "" : " failed"));
   c.append(el("div", "who", `To ${args.to || "?"}${sent ? "" : " · not sent"}`), args.text || "");
   return c;
@@ -139,7 +139,7 @@ wrap("screen_delta", m => {
 });
 wrap("action", m => {
   if (m.tool !== "send_whatsapp") return;
-  const b = reply(); b.insertBefore(waCard(m.args || {}, m.status === "done" ? m.result : ""), b.querySelector(".m")); toBottom();
+  const b = reply(); b.insertBefore(waCard(m.args || {}, m.result), b.querySelector(".m")); toBottom();
 });
 wrap("turn_end", () => { current = null; });
 wrap("chats", m => {
@@ -217,6 +217,7 @@ wrap("whatsapp", m => {
     const img = el("img"); img.src = m.qr; img.alt = "WhatsApp link QR code";
     box.replaceChildren(el("div", null, "Open WhatsApp on your phone → Linked devices → Link a device, and scan this."), img);
   } else {
+    if (m.state === "missing") return box.replaceChildren(el("div", null, "WhatsApp helper isn't installed. Run npm install --prefix desktop/wa"));
     const b = el("button", "btn go wa", "Link WhatsApp"); b.type = "button";
     b.onclick = () => send({ type: "whatsapp_link" });
     box.replaceChildren(el("div", null, "WhatsApp isn't linked, sir. Link it to send from your own number."), b);
