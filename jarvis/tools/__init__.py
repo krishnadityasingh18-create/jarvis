@@ -148,7 +148,7 @@ async def run(ctx: Ctx, call: dict) -> str:
                 "for that separately.")
     if t.prepare:
         try:
-            args = t.prepare(ctx, args)
+            args = await asyncio.to_thread(t.prepare, ctx, args)
         except Exception as e:   # e.g. "Which one: A, B?": say so before asking anything
             result = f"Error: {e}"
             await _log(ctx, name, args, result, "failed", None)

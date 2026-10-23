@@ -173,6 +173,12 @@ def place_call(ctx, number, purpose):
     return f"Calling {n} ({c.get('id', 'call started')}).", None
 
 
+def _linked(ctx):
+    """The helper's client only when it is running AND linked to a number (else n8n)."""
+    c = whatsapp.client(ctx.cfg.db_path.parent)
+    return c if c and (c.status() or {}).get("state") == "linked" else None
+
+
 def _wa_prepare(ctx, args: dict) -> dict:
     """Before the question: check the text and the hourly cap, and turn a contact name into
     one number (never picking between two people, never guessing a number)."""
@@ -189,15 +195,19 @@ def _wa_prepare(ctx, args: dict) -> dict:
     try:
         return {"to": _number(to), "text": text, "name": ""}
     except ValueError:
-        c = whatsapp.client(ctx.cfg.db_path.parent)
+        c = _linked(ctx)
         if c is None:
+            if whatsapp.client(ctx.cfg.db_path.parent):
+                raise ValueError("WhatsApp isn't linked yet, so I can't look up "
+                                 f"{to}; link it first, sir, or give me their number.") from None
             raise
     try:
         found = list({m["number"]: m for m in c.contacts(to)}.values())
     except Exception:
         raise ValueError("I couldn't look up your WhatsApp contacts just now.") from None
     if not found:
-        raise ValueError(f"I don't know a WhatsApp contact called {to}. What's their number?")
+        raise ValueError(f"I don't know a WhatsApp contact called {to}. What's their number? "
+                         "I can remember it for next time.")
     if len(found) > 1:
         raise ValueError("Which one: " + ", ".join(m["name"] for m in found) + "?")
     return {"to": found[0]["number"], "text": text, "name": found[0]["name"]}
@@ -213,7 +223,7 @@ def _wa_prepare(ctx, args: dict) -> dict:
       text="string: the message")
 def send_whatsapp(ctx, to, text, name=""):
     n = _number(to)
-    if c := whatsapp.client(ctx.cfg.db_path.parent):
+    if c := _linked(ctx):
         r = c.send(n, text)
         if not r.get("ok"):   # never "sent" unless WhatsApp's server acknowledged it
             raise ValueError(r.get("error") or "WhatsApp didn't confirm the message")

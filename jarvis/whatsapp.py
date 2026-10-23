@@ -1,6 +1,7 @@
 """Client for the local WhatsApp helper (desktop/wa/helper.mjs): the user's own number,
 linked once by QR. The helper listens on 127.0.0.1 with a token kept in <data>/wa/port."""
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -55,17 +56,23 @@ def client(data_dir: Path) -> Client | None:
     return c if c.status() is not None else None
 
 
+def installed() -> bool:
+    return (HELPER.parent / "node_modules").exists()
+
+
 def start_helper(data_dir: Path) -> subprocess.Popen | None:
     """Start the helper (needs node and `npm install --prefix desktop/wa`); None if it can't."""
     data_dir = Path(data_dir)
-    if not (HELPER.parent / "node_modules").exists():
+    if not installed():
         print("[jarvis] WhatsApp helper not installed: run npm install --prefix desktop/wa")
         return None
     (data_dir / "wa" / "port").unlink(missing_ok=True)   # a stale port from a crashed run
+    # behind Cloudflare WARP Baileys only connects if node trusts the Windows certificate store
+    env = {**os.environ, "NODE_OPTIONS": f"{os.environ.get('NODE_OPTIONS', '')} --use-system-ca".strip()}
     try:
         # the open stdin pipe is the helper's lifeline: it exits when JARVIS goes away
         return subprocess.Popen(["node", str(HELPER), "--data", str(data_dir)],
-                                stdin=subprocess.PIPE,
+                                stdin=subprocess.PIPE, env=env,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except OSError:
         print("[jarvis] WhatsApp helper couldn't start: is node installed?")
