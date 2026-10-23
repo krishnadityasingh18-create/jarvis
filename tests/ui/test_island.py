@@ -50,6 +50,7 @@ def island(cfg, conn, monkeypatch):
         page.on("console", lambda m: m.type == "warning" and m.text.startswith("island: couldn't show")
                 and warnings.append(m.text))
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.add_init_script("window.__rects = []; window.island = { rect: r => window.__rects.push(r) }")
         page.goto(f"http://127.0.0.1:{port}/island")
         page.wait_for_selector("body.st-idle")
         page.push, page.answers, page.warnings = push, answers, warnings
@@ -178,3 +179,16 @@ def test_one_failing_handler_does_not_stop_the_other(island):
     assert any("glance" in w for w in island.warnings)
     island.push({"type": "state", "state": "listening"})   # the socket loop is still alive
     island.wait_for_selector("body.st-listening")
+
+
+def test_the_page_reports_the_island_rect_to_electron(island):
+    island.wait_for_function("() => window.__rects.length > 0")
+    island.wait_for_timeout(1200)   # the width settles with the first caption fit
+    r = island.evaluate("() => window.__rects[window.__rects.length - 1]")
+    box = island.locator("#shell").bounding_box()
+    assert abs(r["x"] - box["x"]) <= 2 and abs(r["w"] - box["width"]) <= 2 and r["h"] > 30
+    island.click("#shell")
+    island.wait_for_selector("#shell.open #panel.in")
+    island.wait_for_timeout(900)
+    r = island.evaluate("() => window.__rects[window.__rects.length - 1]")
+    assert r["w"] == 440 and r["h"] == 600   # follows the layout when it opens

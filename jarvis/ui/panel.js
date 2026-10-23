@@ -237,7 +237,7 @@ micButton($("#pmic"));
 // ---------- drag a file or text onto the island → "Keep in vault?"
 const MAX_DROP = 10 * 1024 * 1024;   // the socket carries it as base64
 const hasData = e => [...(e.dataTransfer?.types || [])].some(t => t === "Files" || t.startsWith("text/"));
-addEventListener("dragover", e => { if (!hasData(e)) return; e.preventDefault(); shell.classList.add("drag"); bridge?.interactive?.(true); });
+addEventListener("dragover", e => { if (!hasData(e)) return; e.preventDefault(); shell.classList.add("drag"); });
 addEventListener("dragleave", e => { if (!e.relatedTarget) shell.classList.remove("drag"); });
 addEventListener("drop", e => {
   if (!hasData(e)) return;

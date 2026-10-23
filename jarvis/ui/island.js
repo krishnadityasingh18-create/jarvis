@@ -70,10 +70,16 @@ function frame(now) {
   if (moving || wasMoving) draw();
   wasMoving = moving;
 }
+let lastRect = "";
+function reportRect(x, y, w, h) {   // the shell's on-screen rect, so Electron can let OS drags reach it
+  const k = [x, y, w, h].join();
+  if (k !== lastRect) { lastRect = k; bridge?.rect?.({ x, y, w, h }); }
+}
 function draw() {
   const w = Math.round(sp.w.x), h = Math.round(sp.h.x), r = Math.max(0, sp.r.x);
   const L = Math.round((innerWidth - w) / 2), T = Math.round(10 + sp.ty.x);
   box(shell, L, T, w, h, r); box($("#gPill"), L, T, w, h, r);
+  reportRect(L, T, w, h);
   box($("#glow"), L - 3, T - 3, w + 6, h + 6, r + 3);
   box($("#rim"), L - 1.5, T - 1.5, w + 3, h + 3, r + 1.5);
   box($("#comet"), L - 2.5, T - 2.5, w + 5, h + 5, r + 2.5);

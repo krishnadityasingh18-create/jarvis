@@ -1,9 +1,10 @@
 const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage } = require('electron');
 const path = require('path');
+const { over } = require('./hit');
 
 const URL = process.env.JARVIS_ISLAND_URL || 'http://127.0.0.1:8765/island';
 const W = 560, H = 660;
-let win, tray;
+let win, tray, rect = null, pageWants = false, passing = false;
 
 const place = () => {
   if (!win) return;
@@ -35,7 +36,13 @@ if (!app.requestSingleInstanceLock()) {
 
   for (const e of ['display-metrics-changed', 'display-added', 'display-removed']) screen.on(e, place);
 
-  ipcMain.on('island:interactive', (_, on) => win.setIgnoreMouseEvents(!on, { forward: true }));
+  const apply = (want) => { if (want !== passing) { passing = want; win.setIgnoreMouseEvents(!want, { forward: true }); } };
+  ipcMain.on('island:interactive', (_, on) => { pageWants = on; apply(on || cursorOver()); });
+  // an OS drag sends the window no mouse events, so the page can't ask: while the cursor is over
+  // the island (its rect comes from the page) take clicks and drops, otherwise pass them through
+  const cursorOver = () => over(screen.getCursorScreenPoint(), win.getBounds(), rect);
+  ipcMain.on('island:rect', (_, r) => { rect = r && { x: +r.x, y: +r.y, w: +r.w, h: +r.h }; });
+  setInterval(() => apply(pageWants || cursorOver()), 50);
   ipcMain.on('island:focusable', (_, on) => { win.setFocusable(on); if (on) win.focus(); });
 
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'tray.png')));
