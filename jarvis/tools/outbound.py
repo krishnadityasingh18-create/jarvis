@@ -3,7 +3,7 @@ import re
 import ssl
 from datetime import datetime, timedelta
 
-from jarvis import db
+from jarvis import db, whatsapp
 from jarvis.config import get_key
 from jarvis.tools import tool
 
@@ -11,6 +11,7 @@ VAPI_CALL = "https://api.vapi.ai/call"
 TWILIO = "https://api.twilio.com/2010-04-01/Accounts/{sid}/{what}.json"
 _NUMBER = re.compile(r"^\+\d{8,15}$", re.ASCII)   # E.164, as Vapi and WhatsApp need
 MAX_MESSAGE = 500
+SELF = {"me", "myself", "self", "my number", "my own number"}   # send_whatsapp to the user
 USD_INR = 88   # Vapi bills in USD, the budget is in rupees; [remote] usd_inr overrides
 
 
@@ -173,15 +174,68 @@ def place_call(ctx, number, purpose):
     return f"Calling {n} ({c.get('id', 'call started')}).", None
 
 
-@tool("Send a WhatsApp message through the user's n8n workflow. Only when the user asks; "
-      "asks first.", confirm=True, exports=True,
-      describe=lambda a: f"send WhatsApp to {a.get('to', '')}: '{a.get('text', '')}'",
-      to="string: phone number with country code", text="string: the message")
-def send_whatsapp(ctx, to, text):
-    n = _number(to)
+def _linked(ctx):
+    """The helper's client only when it is running AND linked to a number (else n8n)."""
+    c = whatsapp.client(ctx.cfg.db_path.parent)
+    return c if c and (c.status() or {}).get("state") == "linked" else None
+
+
+def _wa_prepare(ctx, args: dict) -> dict:
+    """Before the question: check the text and the hourly cap, and turn a contact name into
+    one number (never picking between two people, never guessing a number)."""
+    if ctx.remote:   # absolute: not even [remote] allow can let a message go from the phone
+        raise ValueError(f"WhatsApp messages need the user at the desk; they can't be sent "
+                         f"over {ctx.remote}. Tell them that.")
+    to, text = str(args.get("to", "")), str(args.get("text", ""))
     if len(text) > MAX_MESSAGE:   # the question shows the whole text, so keep it readable
         raise ValueError(f"keep the message under {MAX_MESSAGE} characters")
-    s = _need(ctx.cfg, "whatsapp_webhook", "n8n_token")
+    since = (datetime.now() - timedelta(hours=1)).isoformat(timespec="seconds")
+    if ctx.conn.execute("SELECT COUNT(*) FROM actions WHERE tool='send_whatsapp' AND "
+                        "status='done' AND ts > ?", (since,)).fetchone()[0] >= whatsapp.HOURLY_CAP:
+        raise ValueError(f"That's {whatsapp.HOURLY_CAP} messages this hour; I'll wait, sir.")
+    if to.strip().lower() in SELF:   # the linked account's own number
+        c = _linked(ctx)
+        if not (me := c and (c.status() or {}).get("me")):
+            raise ValueError("WhatsApp isn't linked, so I don't know your own number, sir.")
+        return {"to": me, "text": text, "name": "you"}
+    try:
+        return {"to": _number(to), "text": text, "name": ""}
+    except ValueError:
+        c = _linked(ctx)
+        if c is None:
+            if whatsapp.client(ctx.cfg.db_path.parent):
+                raise ValueError("WhatsApp isn't linked yet, so I can't look up "
+                                 f"{to}; link it first, sir, or give me their number.") from None
+            raise
+    try:
+        found = list({m["number"]: m for m in c.contacts(to)}.values())
+    except Exception:
+        raise ValueError("I couldn't look up your WhatsApp contacts just now.") from None
+    if not found:
+        raise ValueError(f"I don't know a WhatsApp contact called {to}. What's their number? "
+                         "I can remember it for next time.")
+    if len(found) > 1:
+        raise ValueError("Which one: " + ", ".join(m["name"] for m in found) + "?")
+    return {"to": found[0]["number"], "text": text, "name": found[0]["name"]}
+
+
+@tool("Send a WhatsApp message from the user's own number (to a contact name or a number "
+      "with country code). This is how you text: 'text me', 'message Rahul', 'send me that' "
+      "all mean this tool. Only when the user asks; asks first.", confirm=True, exports=True,
+      prepare=_wa_prepare,
+      describe=lambda a: (f"send WhatsApp to {a['name']} ({a['to']}): '{a.get('text', '')}'"
+                          if a.get("name") else
+                          f"send WhatsApp to {a.get('to', '')}: '{a.get('text', '')}'"),
+      to="string: contact name, phone number with country code, or 'myself'",
+      text="string: the message")
+def send_whatsapp(ctx, to, text, name=""):
+    n = _number(to)
+    if c := _linked(ctx):
+        r = c.send(n, text)
+        if not r.get("ok"):   # never "sent" unless WhatsApp's server acknowledged it
+            raise ValueError(r.get("error") or "WhatsApp didn't confirm the message")
+        return f"WhatsApp sent to {name or n}.", None
+    s = _need(ctx.cfg, "whatsapp_webhook", "n8n_token")   # no helper: the n8n workflow
     headers = {"Authorization": f"Bearer {s['n8n_token']}"} if s.get("n8n_token") else {}
     _post(s["whatsapp_webhook"], headers, {"to": n, "text": text})
     return f"WhatsApp sent to {n}.", None

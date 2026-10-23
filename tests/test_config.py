@@ -20,3 +20,9 @@ def test_config_content_settings():
     assert c.routes["local"].model == "jarvis-local"
     r = c.agents["researcher"]
     assert r.route == "reasoning" and r.tools == ["web_search", "read_page"]
+
+
+def test_db_path_is_absolute():
+    # vault/artifact paths are built from it and open_item only opens absolute paths
+    c = load_config(Path("config.toml"))
+    assert c.db_path.is_absolute() and c.db_path == Path("data/jarvis.db").resolve()

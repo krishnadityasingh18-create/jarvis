@@ -20,6 +20,10 @@ python -m venv .venv
 .venv\Scripts\python -m pip install --force-reinstall --no-deps onnxruntime-gpu==1.23.2
 ```
 
+- **Island and WhatsApp (Node):** `npm install --prefix desktop` and
+  `npm install --prefix desktop/wa`. Behind Cloudflare WARP set
+  `NODE_OPTIONS=--use-system-ca` first. Without them JARVIS falls back to the Edge
+  window and WhatsApp goes through n8n (if set up).
 - **Don't install `pip-system-certs`** in this venv. `openai` and `huggingface_hub`
   already use the Windows certificate store (so Cloudflare WARP works), and
   pip-system-certs makes them crash with `RecursionError`.
@@ -47,9 +51,63 @@ Check the voice hardware on its own: `.venv\Scripts\python -m jarvis.voice --sel
 .venv\Scripts\python -m jarvis
 ```
 
-This opens an Edge app window at http://127.0.0.1:8765. Startup takes about
+This shows the **island** at the top of your screen. Startup takes about
 20 s while the voice models load. Settings live in `config.toml`: models,
 voice, hotkey, barge-in mode and budget.
+
+### The island
+
+A small black pill that floats above every app: the orb on the left, the mic on
+the right. It never takes your keyboard focus, and clicks around it go to the
+app underneath.
+
+- **What it shows:**
+  - **Idle:** a ticker of what's next (class, weather, deadline, a reminder).
+  - **Listening:** the orb turns blue and a level meter moves beside the mic,
+    then your words appear.
+  - **Thinking:** the orb turns amber, "Thinking" shimmers, and a light circles
+    the island's edge until the answer starts.
+  - **Speaking:** JARVIS's words, with a colour ring around the edge.
+- **Hover** to peek at the last reply. **Hold the mic** to talk (same as Right
+  Ctrl). **Click** the island to open the panel; Esc or the arrow closes it.
+- **Questions** (WhatsApp sends, file edits, devices) grow the island into a
+  card with Cancel and Send/Allow. Saying "yes" or "no" works too.
+- **Running jobs** (a Claude Code task, a WhatsApp send, a reminder due within
+  10 minutes) split off as a small bubble beside the island. Reminders and
+  WhatsApp replies drop out of it as a card.
+- **Fullscreen** games, videos and presentations: the island tucks away. "Hey
+  Jarvis", a question or a reminder brings it back.
+- **The panel:** glance cards (weather, next class, due soon), then three tabs:
+  - **Chat:** your recent chats as chips, and the conversation laid out like
+    WhatsApp. Voice turns have a mic mark.
+  - **Artifacts:** what JARVIS made for you (files, saved answers, Claude Code
+    commits). Click to open. Say "save this" to keep an answer as one.
+  - **Vault:** what you told it to keep. Say "keep this…", or drag a file or
+    text onto the island. Files are copied in (your original stays put);
+    removing one sends it to the JARVIS trash, and "undo that" brings it back.
+- **Full view** (the button in the panel header, or the tray icon) opens the
+  big window described below.
+- **Tray icon:** Full view, and Quit island (JARVIS keeps running).
+
+### WhatsApp from your own number
+
+One time: run `.venv\Scripts\python -m jarvis whatsapp link` and scan the QR code
+with WhatsApp → Linked devices (or use "Link WhatsApp" at the bottom of the
+Vault tab). The session stays in `data\wa_auth` on this laptop.
+If the helper isn't installed, that row says so: run `npm install --prefix desktop/wa`.
+
+- "WhatsApp Rahul that I'm running late." JARVIS finds the contact, then shows
+  the name, number and the whole message and asks first. Nothing is sent
+  without your yes.
+- Two contacts match? It asks which one. None? It asks for the number.
+- At most 20 messages an hour. Never from the phone or WhatsApp channel.
+- It only says "sent" once WhatsApp's servers confirm it.
+- Replies show as a card, only in chats JARVIS messaged in the last day. It
+  doesn't read or keep anything else.
+- This uses WhatsApp Web's protocol through an unofficial library, so there's a
+  small risk WhatsApp limits the number.
+
+### Full view
 
 - **The orb:** one multicolour glow ring. Its motion shows the state: a slow
   turn when idle, brighter when listening, a fast spin when thinking, and it

@@ -1,0 +1,15 @@
+{
+  "name": "jarvis-wa-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local WhatsApp helper for JARVIS (Baileys, unofficial; sends from the user's own linked number).",
+  "scripts": {
+    "start": "node helper.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "qrcode": "1.5.4"
+  }
+}

@@ -1,3 +1,4 @@
+import atexit
 import getpass
 import subprocess
 import sys
@@ -14,6 +15,8 @@ from jarvis.config import get_key, load_config, set_key
 
 HOST, PORT = "127.0.0.1", 8765
 URL = f"http://{HOST}:{PORT}"
+DESKTOP = Path(__file__).resolve().parent.parent / "desktop"
+ELECTRON = DESKTOP / "node_modules" / "electron" / "dist" / "electron.exe"
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 
@@ -73,6 +76,35 @@ def remote_cli(args: list[str]) -> None:
         print("usage: python -m jarvis remote token | remote tunnel")
 
 
+def whatsapp_cli(args: list[str]) -> None:
+    """Link WhatsApp from the terminal: starts the helper if JARVIS isn't running it, prints
+    the QR (scan it in WhatsApp > Linked devices), and waits until it is linked."""
+    from jarvis import whatsapp
+    if args != ["link"]:
+        return print("usage: python -m jarvis whatsapp link")
+    data = load_config().db_path.parent
+    proc = None if whatsapp.client(data) else whatsapp.start_helper(data)
+    c = whatsapp.wait_for(data)
+    if c is None:
+        raise SystemExit("The WhatsApp helper didn't start (needs node, and: "
+                         "npm install --prefix desktop/wa)")
+    sys.stdout.reconfigure(encoding="utf-8")
+    shown = None
+    try:
+        for _ in range(90):
+            st = c.status() or {}
+            if st.get("state") == "linked":
+                return print("WhatsApp is linked.")
+            if st.get("qr_text") and st["qr_text"] != shown:
+                shown = st["qr_text"]
+                print("\nScan with WhatsApp > Linked devices > Link a device:\n" + shown)
+            time.sleep(2)
+        print("Timed out; run it again.")
+    finally:
+        if proc:
+            proc.terminate()
+
+
 def desk_windows() -> list[int]:
     """JARVIS windows already open (Edge app windows titled Jarvis)."""
     from jarvis.app import WINDOW_TITLE
@@ -81,19 +113,38 @@ def desk_windows() -> list[int]:
             if w["title"] == WINDOW_TITLE and Path(w["exe"]).stem.lower() == "msedge"]
 
 
-def open_window() -> None:
+def wait_for_server() -> None:
     for _ in range(60):
         try:
             urllib.request.urlopen(URL, timeout=1)
-            break
+            return
         except OSError:
             time.sleep(0.5)
+
+
+def open_full_view() -> None:
+    wait_for_server()
     # a restart used to open another window each time; an open one reconnects by itself
     if mine := desk_windows():
         from jarvis.tools import windows
         windows._bring(mine[0])
         return
     subprocess.Popen([EDGE, f"--app={URL}"])
+
+
+def open_island(popen=subprocess.Popen) -> None:
+    """Run the Electron island; restart once on a crash, not on a clean quit (tray Quit)."""
+    if not ELECTRON.exists():
+        print("[jarvis] island not installed; run: npm install --prefix desktop")
+        return open_full_view()
+    wait_for_server()
+    live = []   # Electron isn't tied to this process: end it when JARVIS exits (Ctrl+C included)
+    atexit.register(lambda: [p.terminate() for p in live])
+    for _ in range(2):
+        live[:] = [popen([str(ELECTRON), str(DESKTOP)])]
+        if live[0].wait() == 0:
+            return
+    open_full_view()   # crashed twice: keep a UI on screen
 
 
 def hook_hotkey(voice, key: str) -> None:
@@ -120,6 +171,8 @@ def main() -> None:
         return remote_cli(sys.argv[2:])
     if sys.argv[1:2] == ["accounts"]:
         return accounts_cli(sys.argv[2:])
+    if sys.argv[1:2] == ["whatsapp"]:
+        return whatsapp_cli(sys.argv[2:])
     if sys.argv[1:2] == ["keys"]:
         return keys_cli(sys.argv[2:])
     cfg = load_config()
@@ -139,11 +192,16 @@ def main() -> None:
         hub.from_thread(name, payload)
 
     voice.on_event = on_event
+    from jarvis import whatsapp
+    wa = whatsapp.start_helper(cfg.db_path.parent)   # linked once by QR, then it just runs
+    if wa:
+        atexit.register(wa.terminate)
     from jarvis.tools import files
     files.start_indexer(cfg, lambda text: on_event("banner", {"text": text}))
     voice.start()
     hook_hotkey(voice, cfg.ptt_key)
-    threading.Thread(target=open_window, daemon=True).start()
+    hub.open_full_view = open_full_view
+    threading.Thread(target=open_island, daemon=True).start()
     print(f"[jarvis] {URL}  (push-to-talk: {cfg.ptt_key}; Ctrl+C to quit)")
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 

@@ -120,6 +120,7 @@ class VoiceLoop:
         self.cuda = False
         self.whisper = self.kokoro = self.oww = self.vad = None
         self._held = False
+        self._frames = 0
         self._reset_listen()
         self._speech_ms = 0
         self._last_text = ""
@@ -210,6 +211,10 @@ class VoiceLoop:
         speech = self.vad.predict(pcm, frame_size=640) > 0.5
         if state in (State.LISTENING, State.CONFIRMING):
             self._buf.append(f32)
+            self._frames += 1
+            if self._frames % 4 == 0:   # ~3 a second: enough for the island's meter
+                level = float(np.sqrt(np.mean(f32 ** 2))) * 8
+                self.on_event("mic_level", {"level": min(1.0, level)})
             if speech:
                 self._heard, self._silence = True, 0
             else:

@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS docs (path TEXT PRIMARY KEY, mtime REAL, size INTEGER
   chunks INTEGER, error TEXT);
 CREATE TABLE IF NOT EXISTS chunks (id INTEGER PRIMARY KEY, path TEXT, page INTEGER, text TEXT,
   vec BLOB);
+CREATE TABLE IF NOT EXISTS vault (id INTEGER PRIMARY KEY, ts TEXT, kind TEXT, title TEXT,
+  text TEXT, path TEXT, url TEXT, sha TEXT);
 CREATE INDEX IF NOT EXISTS chunks_path ON chunks(path);
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, content='chunks', content_rowid='id');
 CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
@@ -85,7 +87,7 @@ def add_message(conn, role: str, content: str, screen: str = "", route: str = ""
 def recent_messages(conn, n: int = 20) -> list[dict]:
     """The current chat's last n messages (the model's memory of this conversation)."""
     rows = conn.execute(
-        "SELECT role,content,screen,route,interrupted,actions,private FROM messages "
+        "SELECT ts,role,content,screen,route,interrupted,actions,private FROM messages "
         "WHERE chat=? ORDER BY id DESC LIMIT ?",
         (current_chat(conn), n)).fetchall()
     return [dict(r) for r in reversed(rows)]

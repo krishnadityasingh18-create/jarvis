@@ -324,12 +324,13 @@ async def _refuse(question: str) -> bool:
 async def run_turn(cfg, conn, user_text: str, ui_route: str, emit: Emit, speak: Speak,
                    prepare: Callable[[str], None] | None = None,
                    confirm: Callable[[str], Awaitable[bool]] | None = None,
-                   channel: str = "desk") -> None:
-    """channel: "desk" (this laptop), or "phone"/"whatsapp" (the away channel, where nothing
+                   channel: str = "desk", typed: bool = True) -> None:
+    """typed=False: the text came from a voice transcript (stored with route "voice").
+    channel: "desk" (this laptop), or "phone"/"whatsapp" (the away channel, where nothing
     can be approved and Claude Code isn't available)."""
     global _warned_on
     remote = channel != "desk"
-    db.add_message(conn, "user", user_text)
+    db.add_message(conn, "user", user_text, route="" if typed else "voice")
     if not remote and (prompt := direct_claude_prompt(user_text)) is not None:
         return await _direct_claude(cfg, conn, prompt, emit, speak)
     from jarvis.tools import briefing as briefing_tool
