@@ -210,10 +210,11 @@ $("#confirm").addEventListener("click", e => {
   if (b) endAsk(b.dataset.act === "ok");
 });
 let confirmId = null;
+export const confirming = () => confirmId !== null;   // a server question is up: drops must not replace it
 function confirmQuestion(m) {
   confirmId = m.id;
-  const wa = /whatsapp/i.test(m.text), hit = /^send whatsapp to (.+?): ['"“](.*)['"”]$/is.exec(m.text.trim());
-  const msg = hit ? ["To ", el("b", null, hit[1]), ": ", el("i", null, `“${hit[2]}”`)] : [m.text];
+  const text = String(m.text ?? ""), hit = /^send whatsapp to (.+?): ['"“](.*)['"”]$/is.exec(text.trim()), wa = !!hit;
+  const msg = hit ? ["To ", el("b", null, hit[1]), ": ", el("i", null, `“${hit[2]}”`)] : [text];
   askCard({ kind: wa ? "WhatsApp · from your number" : "JARVIS asks", msg, ok: wa ? "Send" : "Allow", wa,
             onAnswer: ok => send({ type: "confirm_reply", id: m.id, ok }) });
 }
@@ -327,7 +328,7 @@ function connect() {
   };
   s.onclose = () => {
     if (s !== ws) return;
-    setState("off"); if (ui.mode === "confirm") endAsk(false);
+    setState("off"); confirmId = null; if (ui.mode === "confirm") endAsk(false);
     retry = later(backoff, connect); backoff = Math.min(8000, backoff * 2);
   };
 }

@@ -1,6 +1,7 @@
 """The island page in a real browser (Chromium via Playwright), driven by fake server messages.
 Skipped unless playwright is installed: pip install -r requirements-dev.txt; playwright install chromium."""
 import asyncio
+import json
 import socket
 import threading
 import time
@@ -41,16 +42,20 @@ def island(cfg, conn, monkeypatch):
         asyncio.run_coroutine_threadsafe(hub.broadcast(msg), hub.loop).result(5)
 
     errors = []
+    warnings = []
     with pw.sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 560, "height": 660})
         page.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        page.on("console", lambda m: m.type == "warning" and m.text.startswith("island: couldn't show")
+                and warnings.append(m.text))
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/island")
         page.wait_for_selector("body.st-idle")
-        page.push, page.answers = push, answers
+        page.push, page.answers, page.warnings = push, answers, warnings
         yield page
         assert errors == []   # no console errors during the run
+        assert page.warnings == [] or getattr(page, "expect_warnings", False)   # a handler threw
         browser.close()
     server.should_exit = True
     thread.join(5)
@@ -102,3 +107,74 @@ def test_frame_budget_over_expand_collapse_and_peek(island):
     slow = sum(d > 20 for d in deltas)
     print(f"frame budget: {slow}/{len(deltas)} frames over 20 ms, worst {max(deltas):.1f} ms")
     assert len(deltas) > 300 and slow / len(deltas) <= .01, f"{slow} of {len(deltas)} frames over 20 ms"
+
+
+DROP_TEXT = """() => { const d = new DataTransfer(); d.setData("text/plain", "hello vault");
+  document.dispatchEvent(new DragEvent("drop", { dataTransfer: d, bubbles: true, cancelable: true })); }"""
+
+
+def test_a_drop_while_a_server_confirm_is_showing_is_ignored(island):
+    island.push({"type": "confirm", "id": "c1", "text": "Close Notepad, sir?", "seconds": 60})
+    island.wait_for_selector("#confirm.on")
+    island.evaluate(DROP_TEXT)
+    island.wait_for_timeout(300)
+    assert "Notepad" in island.inner_text("#cmsg") and "vault" not in island.inner_text("#cmsg")
+
+
+def test_a_drop_with_nothing_showing_asks_to_keep(island):
+    island.evaluate(DROP_TEXT)
+    island.wait_for_selector("#confirm.on")
+    assert "vault" in island.inner_text("#cmsg")
+
+
+def test_confirm_without_text_does_not_throw(island):
+    island.push({"type": "confirm", "id": "c2"})
+    island.wait_for_selector("#confirm.on")
+    island.wait_for_timeout(200)   # the fixture asserts no "couldn't show" warning
+
+
+def test_whatsapp_styling_follows_the_send_pattern_not_the_word(island):
+    island.push({"type": "confirm", "id": "c3", "text": "Open the WhatsApp settings, sir?", "seconds": 60})
+    island.wait_for_selector("#confirm.on")
+    assert not island.eval_on_selector("#confirm .go", "e => e.classList.contains('wa')")
+    island.push({"type": "confirm", "id": "c4", "text": "send WhatsApp to Rahul: 'late'", "seconds": 60})
+    island.wait_for_function("() => document.querySelector('#confirm .go').classList.contains('wa')")
+
+
+def _history(island, messages):
+    island.push({"type": "history", "messages": messages, "route": "fast"})
+    island.wait_for_selector("#thread .b", state="attached")
+
+
+def _wa(result):
+    return json.dumps([{"name": "send_whatsapp", "arguments": json.dumps({"to": "Rahul", "text": "late"}),
+                        "result": result}])
+
+
+def test_history_marks_a_send_failed_only_when_the_result_starts_with_error(island):
+    ts = "2026-10-23T09:00:00"
+    _history(island, [
+        {"role": "assistant", "content": "a", "screen": "", "ts": ts, "route": "fast", "actions": _wa("Error: helper down")},
+        {"role": "assistant", "content": "b", "screen": "", "ts": ts, "route": "fast", "actions": _wa("Message delivered to Rahul")},
+        {"role": "assistant", "content": "c", "screen": "", "ts": ts, "route": "fast", "actions": _wa("I could not say it was sent")},
+    ])
+    assert island.eval_on_selector_all("#thread .wa", "es => es.map(e => e.classList.contains('failed'))")         == [True, False, False]
+
+
+def test_history_shows_the_mic_for_voice_user_messages(island):
+    ts = "2026-10-23T09:00:00"
+    _history(island, [{"role": "user", "content": "hi", "screen": "", "ts": ts, "route": "voice", "actions": ""},
+                      {"role": "user", "content": "yo", "screen": "", "ts": ts, "route": "", "actions": ""}])
+    assert island.locator("#thread .b.me .voice").count() == 1
+
+
+def test_one_failing_handler_does_not_stop_the_other(island):
+    island.expect_warnings = True
+    island.push({"type": "history", "messages": [{"role": "user", "content": "kept", "ts": "2026-10-23T09:00:00"}]})
+    island.wait_for_selector("#thread .b.me", state="attached")
+    island.push({"type": "glance", "items": [None]})   # the panel's glance handler throws on a null item
+    island.wait_for_function("() => true")
+    island.wait_for_timeout(200)
+    assert any("glance" in w for w in island.warnings)
+    island.push({"type": "state", "state": "listening"})   # the socket loop is still alive
+    island.wait_for_selector("body.st-listening")

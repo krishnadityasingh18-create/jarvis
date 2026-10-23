@@ -1,11 +1,18 @@
 // The panel: the island expanded to 440×600. Chat (WhatsApp-style bubbles), Artifacts, Vault,
 // glance cards and an input bar. Shares island.js's springs, socket and confirm card.
-import { ui, sp, on, send, setMode, askCard, micButton, notify, ICON, MICRO } from "/ui/island.js";
+import { ui, sp, on, send, setMode, askCard, confirming, micButton, notify, ICON, MICRO } from "/ui/island.js";
 
 const $ = q => document.querySelector(q);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const svg = html => { const t = document.createElement("template"); t.innerHTML = html; return t.content.firstChild; };
-const wrap = (type, f) => { const prev = on[type]; on[type] = m => { prev?.(m); f(m); }; };
+// each handler runs on its own: a throw in the island's doesn't skip the panel's (the socket loop warns about ours)
+const wrap = (type, f) => {
+  const prev = on[type];
+  on[type] = m => {
+    try { prev?.(m); } catch (err) { console.warn("island: couldn't show", type, err); }
+    f(m);
+  };
+};
 const bridge = window.island;
 const md = text => DOMPurify.sanitize(marked.parse(text || ""));
 const hhmm = ts => { const d = ts ? new Date(ts) : new Date(); return isNaN(d) ? "" : d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); };
@@ -73,7 +80,7 @@ const thread = $("#thread"), view = $("#v-chat");
 let current = null, heardByVoice = false, chatsMsg = null;
 const toBottom = () => { view.scrollTop = view.scrollHeight; };   // live turns always follow
 function waCard(args, result) {
-  const sent = /\bsent\b/i.test(result || "") && !/not sent|n't|error|fail/i.test(result || "");
+  const sent = !/^error/i.test(String(result || "").trim());   // tools.run records a failure as "Error: ..."
   const c = el("div", "wa" + (sent ? "" : " failed"));
   c.append(el("div", "who", `To ${args.to || "?"}${sent ? "" : " · not sent"}`), args.text || "");
   return c;
@@ -235,6 +242,7 @@ addEventListener("dragleave", e => { if (!e.relatedTarget) shell.classList.remov
 addEventListener("drop", e => {
   if (!hasData(e)) return;
   e.preventDefault(); shell.classList.remove("drag");
+  if (confirming()) return;
   const file = e.dataTransfer.files[0], txt = !file && (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain"));
   if (file) {
     if (file.size > MAX_DROP) return notify({ icon: "info", title: "Too big to drop", text: `${file.name} is over 10 MB. Say “keep” with its path instead.` });
