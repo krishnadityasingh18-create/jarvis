@@ -220,7 +220,8 @@ def _wa_prepare(ctx, args: dict) -> dict:
 
 
 @tool("Send a WhatsApp message from the user's own number (to a contact name or a number "
-      "with country code). Only when the user asks; asks first.", confirm=True, exports=True,
+      "with country code). This is how you text: 'text me', 'message Rahul', 'send me that' "
+      "all mean this tool. Only when the user asks; asks first.", confirm=True, exports=True,
       prepare=_wa_prepare,
       describe=lambda a: (f"send WhatsApp to {a['name']} ({a['to']}): '{a.get('text', '')}'"
                           if a.get("name") else
