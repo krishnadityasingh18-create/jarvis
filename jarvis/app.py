@@ -88,11 +88,15 @@ class Hub:
             if up["type"] != "uploaded":
                 await self.broadcast(up)
                 return
-            r = await self.desk_run("keep", path=up["path"])
-            if not r.startswith("Kept "):   # duplicate or declined: drop the copy we just made
-                Path(up["path"]).unlink(missing_ok=True)
+            await self.desk_run("keep", path=up["path"])
+            Path(up["path"]).unlink(missing_ok=True)   # kept (the vault has its own copy) or not: ours to drop
         elif m.get("text"):
-            await self.desk_run("keep", text=str(m["text"]))
+            t = str(m["text"]).strip()
+            u = urlparse(t)
+            if u.scheme in ("http", "https") and u.netloc and not any(c.isspace() for c in t):
+                await self.desk_run("keep", url=t)   # a dropped link is kept as a link
+            else:
+                await self.desk_run("keep", text=str(m["text"]))
         else:
             await self.broadcast({"type": "banner", "text": "Nothing to keep"})
 
@@ -239,6 +243,8 @@ class Hub:
         """The helper's link state for the island: linked / unlinked / qr (with the image)."""
         c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
         st = (await asyncio.to_thread(c.status) if c else None) or {}
+        if c is None and not whatsapp.installed():   # the panel then says how to install it
+            return {"type": "whatsapp", "state": "missing", "qr": ""}
         return {"type": "whatsapp", "state": st.get("state", "unlinked"), "qr": st.get("qr") or ""}
 
     async def whatsapp_link(self) -> None:
@@ -256,8 +262,13 @@ class Hub:
     async def whatsapp_replies(self, interval: float = 30) -> None:
         """Replies to messages JARVIS sent (the last 24 h, from the helper) drop in as cards."""
         since = datetime.now(timezone.utc).isoformat()
+        last = await self.whatsapp_state()
         while True:
             await asyncio.sleep(interval)
+            now = await self.whatsapp_state()   # e.g. `whatsapp link` finished in a terminal
+            if now != last:
+                last = now
+                await self.broadcast(now)
             c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
             if c is None:
                 continue

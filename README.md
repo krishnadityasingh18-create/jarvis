@@ -94,6 +94,7 @@ app underneath.
 One time: run `.venv\Scripts\python -m jarvis whatsapp link` and scan the QR code
 with WhatsApp → Linked devices (or use "Link WhatsApp" at the bottom of the
 Vault tab). The session stays in `data\wa_auth` on this laptop.
+If the helper isn't installed, that row says so: run `npm install --prefix desktop/wa`.
 
 - "WhatsApp Rahul that I'm running late." JARVIS finds the contact, then shows
   the name, number and the whole message and asks first. Nothing is sent

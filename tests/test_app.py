@@ -529,7 +529,20 @@ def test_keep_with_data_saves_the_file_and_prefers_it_over_text(cfg, conn, tmp_p
         ctx.__exit__(None, None, None)
     [item] = seen[-1]["items"]
     assert item["kind"] == "file" and item["title"] == "n.txt"
-    assert (tmp_path / "n.txt").read_bytes() == b"hello"
+    assert not (tmp_path / "n.txt").exists()   # the upload copy is dropped; the vault has its own
+    assert open(item["path"], "rb").read() == b"hello"
+
+
+def test_keep_with_a_dropped_link_keeps_a_link(cfg, conn):
+    with TestClient(create_app(cfg, conn)) as client:
+        ctx, ws = connect(client)
+        ws.send_json({"type": "keep", "text": " https://example.com/a?b=1 "})
+        seen = recv_until(ws, lambda m: m["type"] == "vault")
+        ws.send_json({"type": "keep", "text": "see https://example.com now"})
+        seen = recv_until(ws, lambda m: m["type"] == "vault")
+        ctx.__exit__(None, None, None)
+    kinds = {i["kind"]: i for i in seen[-1]["items"]}
+    assert kinds["link"]["url"] == "https://example.com/a?b=1" and kinds["note"]["text"].startswith("see ")
 
 
 def test_keep_with_nothing_says_so(cfg, conn):
@@ -585,7 +598,7 @@ def test_transcript_turn_is_started_untyped(cfg, conn):
     assert seen == [("what time is it", False), ("typed", True)]
 
 
-def test_keep_with_data_that_is_a_duplicate_deletes_its_own_copy(cfg, conn, tmp_path, monkeypatch):
+def test_keep_with_data_that_is_a_duplicate_leaves_no_upload_copy(cfg, conn, tmp_path, monkeypatch):
     import base64
     monkeypatch.setattr("jarvis.app.UPLOADS", tmp_path)
     cfg.file_roots, cfg.app_dir = [tmp_path], tmp_path / "app"
@@ -597,4 +610,4 @@ def test_keep_with_data_that_is_a_duplicate_deletes_its_own_copy(cfg, conn, tmp_
         ws.send_json({"type": "keep", "name": "n.txt", "data": data})   # same bytes again
         recv_until(ws, lambda m: m["type"] == "action" and m["status"] == "done")
         ctx.__exit__(None, None, None)
-    assert sorted(p.name for p in tmp_path.glob("n*.txt")) == ["n.txt"]
+    assert sorted(p.name for p in tmp_path.glob("n*.txt")) == []   # neither upload is left behind
