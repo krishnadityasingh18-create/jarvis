@@ -6,6 +6,8 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 from jarvis.tools import MAX_RESULT, _record, tool
@@ -95,27 +97,75 @@ def _head(repo: Path) -> str:
         return ""   # a repository with no commits yet
 
 
-def _run(cwd: Path, prompt: str, holder: dict) -> tuple[str, bool, str, dict | None]:
+READS = {"Read", "Grep", "Glob", "LS"}
+EDITS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+TESTS = re.compile(r"\b(pytest|unittest|npm (run )?test|node --test|jest|vitest|go test|cargo test|mvn test|gradle test)\b")
+
+
+def progress(event: dict) -> dict | None:
+    """One stream-json event from Claude Code -> the island's live card update, or None.
+    Steps: read -> edit -> test -> done."""
+    if event.get("type") != "assistant":
+        return None
+    for part in (event.get("message") or {}).get("content") or []:
+        if part.get("type") != "tool_use":
+            continue
+        name, inp = part.get("name", ""), part.get("input") or {}
+        if name in READS:
+            return {"step": "read", "file": Path(str(inp.get("file_path") or inp.get("path") or "")).name}
+        if name in EDITS:
+            old, new = (str(inp.get(k) or "") for k in ("old_string", "new_string"))
+            if name == "Write":
+                new = str(inp.get("content") or "")
+            if name == "MultiEdit" and inp.get("edits"):
+                old, new = (str(inp["edits"][0].get(k) or "") for k in ("old_string", "new_string"))
+            first = lambda t: next((l.strip() for l in t.splitlines() if l.strip()), "")[:80]
+            return {"step": "edit", "file": Path(str(inp.get("file_path") or inp.get("notebook_path") or "")).name,
+                    "old": first(old), "new": first(new)}
+        if name == "Bash" and TESTS.search(str(inp.get("command") or "")):
+            return {"step": "test", "file": ""}
+    return None
+
+
+def _run(cwd: Path, prompt: str, holder: dict, on_progress=None) -> tuple[str, bool, str, dict | None]:
     """Run `claude -p` in cwd. Returns (Claude's exact reply, failed, commits, undo).
+    Progress (see `progress`) goes to on_progress as it streams.
     In a git project, changes Claude left uncommitted are committed too."""
     repo = (cwd / ".git").exists()
     before = _head(cwd) if repo else ""
     p = subprocess.Popen(
-        _command() + ["-p", prompt, "--output-format", "json",
+        _command() + ["-p", prompt, "--output-format", "stream-json", "--verbose",
                       "--permission-mode", "bypassPermissions", "--append-system-prompt", RULES],
         cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
     holder["proc"] = p
+    timed_out, errbuf = [], []
+    killer = threading.Timer(TIMEOUT_S, lambda: (timed_out.append(1), p.kill()))
+    killer.start()
+    drain = threading.Thread(target=lambda: errbuf.append(p.stderr.read()), daemon=True)
+    drain.start()   # stderr on its own thread: a full pipe would otherwise stall stdout
+    result = None
     try:
-        out, err = p.communicate(timeout=TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        p.kill()
-        p.communicate()
-        out, err = b"", b"timed out after 20 minutes"
-    try:
-        data = json.loads(out.decode("utf-8", errors="replace"))
-        reply, failed = str(data.get("result", "")), bool(data.get("is_error"))
-    except ValueError:
-        reply, failed = err.decode("utf-8", errors="replace").strip()[-500:], True
+        for line in p.stdout:   # one JSON event per line; the last "result" is the answer
+            try:
+                ev = json.loads(line.decode("utf-8", errors="replace"))
+            except ValueError:
+                continue
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("type") == "result" or ("result" in ev and "type" not in ev):
+                result = ev
+            elif on_progress and (u := progress(ev)):
+                on_progress(u)
+        p.wait()
+        drain.join(5)
+    finally:
+        killer.cancel()
+    err = errbuf[0] if errbuf else b""
+    if result is not None:
+        reply, failed = str(result.get("result", "")), bool(result.get("is_error"))
+    else:
+        reply = "timed out after 20 minutes" if timed_out else err.decode("utf-8", errors="replace").strip()[-500:]
+        failed = True
     if not repo:
         return reply, failed, "", None
     if _git(cwd, "status", "--porcelain"):   # Claude left changes uncommitted
@@ -129,13 +179,24 @@ def _run(cwd: Path, prompt: str, holder: dict) -> tuple[str, bool, str, dict | N
     return reply, failed, commits, undo_info
 
 
-async def _run_async(cwd: Path, prompt: str):
+async def _run_async(cwd: Path, prompt: str, ctx=None):
     holder: dict = {}
+    loop, started = asyncio.get_running_loop(), time.time()
+
+    def live(u: dict) -> None:   # from the worker thread -> the island's Claude Code card
+        if ctx is not None:
+            msg = {"type": "claude_live", "project": cwd.name, "task": prompt[:120], "started": started, **u}
+            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(ctx.emit(msg)))
+
+    live({"step": "start", "file": ""})
     try:
-        return await asyncio.to_thread(_run, cwd, prompt, holder)
+        out = await asyncio.to_thread(_run, cwd, prompt, holder, live)
+        live({"step": "failed" if out[1] else "done", "file": ""})
+        return out
     except asyncio.CancelledError:
         if holder.get("proc"):
             holder["proc"].kill()   # the user moved on: stop Claude too
+        live({"step": "failed", "file": ""})
         raise
 
 
@@ -149,7 +210,7 @@ async def _run_async(cwd: Path, prompt: str):
 async def ask_claude(ctx, task, project):
     repo = _repo(project, ctx.cfg)
     await ctx.emit({"type": "agent", "agent": "Claude"})
-    reply, failed, commits, undo_info = await _run_async(repo, task)
+    reply, failed, commits, undo_info = await _run_async(repo, task, ctx)
     head = "Claude Code reported a problem.\n" if failed else ""
     return head + (reply.strip() or "(no summary)") + (
         f"\n\nCommits in {repo.name}:\n{commits}" if commits else "\n\nNo changes were made."), \
@@ -167,7 +228,7 @@ async def direct(ctx, prompt: str) -> str:
         cwd = (ctx.cfg.db_path.parent / "claude").resolve()
         cwd.mkdir(parents=True, exist_ok=True)
     await ctx.emit({"type": "agent", "agent": "Claude"})
-    reply, failed, commits, undo_info = await _run_async(cwd, prompt)
+    reply, failed, commits, undo_info = await _run_async(cwd, prompt, ctx)
     note = f"\n\nCommits in {cwd.name}:\n{commits}" if commits else ""
     await ctx.emit(_record(ctx, "ask_claude", {"task": prompt, "project": cwd.name},
                            (reply + note)[:MAX_RESULT], "failed" if failed else "done",
