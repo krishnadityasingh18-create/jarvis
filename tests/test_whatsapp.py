@@ -155,8 +155,11 @@ async def test_replies_become_notify_cards(cfg, conn, monkeypatch):
 
 async def test_whatsapp_state_without_helper(cfg, conn, monkeypatch):
     from jarvis.app import Hub
+    monkeypatch.setattr(whatsapp, "installed", lambda: True)
     assert await Hub(cfg, conn, None, None).whatsapp_state() == \
         {"type": "whatsapp", "state": "unlinked", "qr": ""}
+    monkeypatch.setattr(whatsapp, "installed", lambda: False)
+    assert (await Hub(cfg, conn, None, None).whatsapp_state())["state"] == "missing"
 
 
 async def test_remote_block_is_absolute_even_if_allowed(cfg, conn, helper):
