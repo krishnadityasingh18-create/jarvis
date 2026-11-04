@@ -16,7 +16,7 @@ class S {
   get done() { return Math.abs(this.x - this.t) < .05 && Math.abs(this.v) < .05; }
 }
 export const sp = { w: new S(120), h: new S(38), r: new S(19), ox: new S(4), oy: new S(4), os: new S(28),
-  bx: new S(0), mx: new S(0), ty: new S(0), ny: new S(10), nw: new S(120), nh: new S(38), seg: new S(0), lvl: new S(0) };
+  bx: new S(0), mx: new S(0), ty: new S(0), ny: new S(10), nw: new S(120), nh: new S(38), lvl: new S(0) };
 sp.lvl.p = P(.16, .15);
 
 const shell = $("#shell"), orbEl = $("#orb"), mid = $("#mid"), bars = [...document.querySelectorAll("#eq i")];
@@ -25,7 +25,7 @@ const later = (ms, f) => setTimeout(f, ms);
 const bridge = window.island;   // the Electron window (absent in a plain browser)
 
 // ---------- state shared with the panel
-export const ui = { mode: "idle", state: "off", lastReply: "", hooks: { mode: [], state: [] } };
+export const ui = { mode: "idle", state: "off", view: "home", lastReply: "", hooks: { mode: [], state: [], view: [] } };
 // what the desk is doing: the song, the focus timer, Claude Code's progress (home.js shows them big)
 export const desk = { media: { title: "" }, focus: { until: 0, minutes: 0 }, claude: null };
 // several handlers for one socket message, each isolated (a throw in one doesn't skip the others)
@@ -37,13 +37,15 @@ let capW = 0, holdUntil = 0, capTok = 0, hovering = false;
 
 // ---------- geometry
 let extraH = { confirm: 122 };
+// open: wide and short for the glanceable views, taller for the ones you read
+export const OPEN_W = 620, OPEN_H = { home: 300, code: 300 };
 export function geom(m, preset) {
   const fit = Math.max(120, Math.min(460, 98 + capW + (ui.state === "listening" ? 34 : 0)));   // width follows the content
   const g = { idle: [fit, 38, 19], peek: [Math.max(320, fit), 64, 26], caption: [fit, 38, 19],
-              confirm: [400, extraH.confirm, 30], open: [440, 600, 32] }[m];
+              confirm: [400, extraH.confirm, 30], open: [OPEN_W, OPEN_H[ui.view] || 540, 30] }[m];
   sp.w.to(g[0], preset); sp.h.to(g[1], preset); sp.r.to(g[2], preset);
   const big = m === "open", card = m === "confirm";
-  sp.ox.to(big ? 18 : card ? 14 : 4, preset); sp.oy.to(big ? 18 : card ? 14 : 4, preset); sp.os.to(big ? 44 : card ? 32 : 28, preset);
+  sp.ox.to(big ? 14 : card ? 14 : 4, preset); sp.oy.to(big ? 11 : card ? 14 : 4, preset); sp.os.to(big ? 30 : card ? 32 : 28, preset);
   return g[0];
 }
 export function setMode(m) {

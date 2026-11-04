@@ -45,7 +45,7 @@ def island(cfg, conn, monkeypatch):
     warnings = []
     with pw.sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 560, "height": 660})
+        page = browser.new_page(viewport={"width": 760, "height": 660})
         page.on("console", lambda m: m.type == "error" and errors.append(m.text))
         page.on("console", lambda m: m.type == "warning" and m.text.startswith("island: couldn't show")
                 and warnings.append(m.text))
@@ -204,7 +204,12 @@ def test_the_page_reports_the_island_rect_to_electron(island):
     island.wait_for_selector("#shell.open #panel.in")
     island.wait_for_timeout(900)
     r = island.evaluate("() => window.__rects[window.__rects.length - 1]")
-    assert r["w"] == 440 and r["h"] == 600   # follows the layout when it opens
+    assert r["w"] == 620 and r["h"] == 300   # follows the layout when it opens: wide and short on Home
+    island.click('#seg button[data-v="chat"]')
+    island.wait_for_timeout(900)
+    r = island.evaluate("() => window.__rects[window.__rects.length - 1]")
+    assert r["h"] == 540 and island.is_visible("#text")   # Chat is taller, with the input
+    assert island.evaluate("() => document.querySelector('#panel').offsetHeight") == 540
 
 
 @pytest.mark.parametrize("status,result,failed", [
@@ -241,6 +246,20 @@ def test_home_is_the_first_tab_and_shows_claude_progress(island):
     island.push({"type": "claude_live", "project": "webshop", "task": "x", "started": time.time() - 40, "step": "done", "file": ""})
     island.wait_for_function("() => !document.querySelector('#hc-claude').classList.contains('on')")
     assert island.inner_text("#cc-sub") == "Done"
+
+
+def test_the_code_tab_shows_the_task_big_and_warms_the_panel(island):
+    _open(island)
+    island.click("#seg button[data-v=code]")
+    assert island.is_visible("#cc-none") and not island.is_visible("#cc-live")
+    island.push({"type": "claude_live", "project": "webshop", "task": "x", "started": time.time() - 14, "step": "edit",
+                 "file": "checkout.ts", "old": "const total = 0", "new": "const total = sum(items)"})
+    island.wait_for_selector("#shell.warm")
+    assert island.inner_text("#cl-time").startswith("0:1") and island.is_visible("#cl-file")
+    island.click("#seg button[data-v=home]")
+    assert "warm" not in island.get_attribute("#shell", "class")   # only while you watch it
+    island.click("#hc-claude")
+    assert island.get_attribute("#seg button[data-v=code]", "aria-selected") == "true"
 
 
 def test_a_playing_song_splits_off_a_bubble_and_fills_the_card(island):

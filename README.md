@@ -81,15 +81,20 @@ app underneath.
   WhatsApp replies drop out of it as a card.
 - **Fullscreen** games, videos and presentations: the island tucks away. "Hey
   Jarvis", a question or a reminder brings it back.
-- **The panel:** glance cards (weather, next class, due soon), then four tabs:
+- **The panel:** wide and short for a glance, taller for reading. A slim header
+  (status, date and time, weather) and a dock of five tabs at the bottom, with
+  the mic beside them:
   - **Home:** three live cards. **Claude Code** shows the task running (time,
-    step 2 of 4) and, below, the project, the file being edited with its change
-    and a Read, Edit, Test, Done bar. **Music** controls whatever Windows says is
-    playing (Spotify, a browser tab…). **Focus** starts or stops a 25-minute
-    timer. Under them, **quick actions** on your clipboard: Explain, Check
-    spelling, Translate, Summarize (the answer appears in Chat).
+    step 2 of 4, a progress ring); click it for Code. **Music** controls
+    whatever Windows says is playing (Spotify, a browser tab…), with the cover
+    in the corner. **Focus** starts or stops a 25-minute timer. Under them,
+    **quick actions** on your clipboard: Explain, Check spelling, Translate,
+    Summarize (the answer appears in Chat).
+  - **Code:** the Claude Code task, big: project, timer, the file being edited
+    with its change, and a Read, Edit, Test, Done bar. The panel glows warm
+    while it runs.
   - **Chat:** your recent chats as chips, and the conversation laid out like
-    WhatsApp. Voice turns have a mic mark.
+    WhatsApp, with the input box. Voice turns have a mic mark.
   - **Artifacts:** what JARVIS made for you (files, saved answers, Claude Code
     commits). Click to open. Say "save this" to keep an answer as one.
   - **Vault:** what you told it to keep. Say "keep this…", or drag a file or

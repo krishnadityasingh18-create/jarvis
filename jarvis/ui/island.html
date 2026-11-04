@@ -36,36 +36,39 @@
   <div id="panel" aria-label="JARVIS panel">
     <div class="head">
       <div class="t"><h1>JARVIS</h1><div class="s" id="stat">Offline</div></div>
+      <div class="now"><span id="clock"></span><div class="glance" id="glance"></div></div>
       <button class="ib" id="full" type="button" title="Full view" aria-label="Full view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
       <button class="ib" id="close" type="button" title="Collapse" aria-label="Collapse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 15 6-6 6 6"/></svg></button>
     </div>
 
-    <div class="glance" id="glance"></div>
-
-    <div class="seg" id="seg" role="tablist"><div class="pill"></div>
-      <button class="on" type="button" role="tab" aria-selected="true" data-v="home">Home</button><button type="button" role="tab" aria-selected="false" data-v="chat">Chat</button><button type="button" role="tab" aria-selected="false" data-v="art">Artifacts</button><button type="button" role="tab" aria-selected="false" data-v="vault">Vault</button></div>
-
     <div class="body">
       <div class="view on" id="v-home" role="tabpanel">
         <div class="cards">
-          <button class="card cc" id="hc-claude" type="button" title="Claude Code">
+          <button class="card cc" id="hc-claude" type="button" title="Open Code">
             <div class="l">Claude Code<svg class="ring" viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="14"/><circle class="arc" cx="18" cy="18" r="14" stroke-dasharray="88" stroke-dashoffset="88"/></svg></div>
-            <div class="big" id="cc-time">—</div><div class="sub" id="cc-sub">No task running</div></button>
-          <div class="card mu" id="hc-music"><div class="cover" id="mu-cover"></div>
-            <div class="l">Music</div>
+            <div class="big" id="cc-time">0:00</div><div class="sub" id="cc-sub">No task running</div></button>
+          <div class="card mu" id="hc-music"><div class="cover" id="mu-bg"></div>
+            <div class="l">Music<div class="art" id="mu-cover"></div></div>
             <div class="t" id="mu-t">Nothing playing</div><div class="sub" id="mu-a">Play something</div>
             <div class="ctl"><button type="button" class="cb" data-m="prev" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button><button type="button" class="cb pp" data-m="toggle" id="mu-pp" aria-label="Play or pause"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button type="button" class="cb" data-m="next" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button></div></div>
           <div class="card fo" id="hc-focus">
             <div class="l">Focus<button type="button" class="cb pp" id="fo-go" aria-label="Start focus"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button></div>
             <div class="big" id="fo-time">25:00</div><div class="sub" id="fo-sub">Ready to start</div></div>
         </div>
+        <div class="qa" id="qa"><span class="ql">Clipboard</span>
+          <button type="button" data-q="Explain this simply">Explain</button><button type="button" data-q="Fix the spelling and grammar in this and give me only the corrected text">Check spelling</button><button type="button" data-q="Translate this to English (or to Hindi if it is already English)">Translate</button><button type="button" data-q="Summarize this in three short bullet points">Summarize</button></div>
+      </div>
+      <div class="view" id="v-code" role="tabpanel">
+        <div class="idle-code" id="cc-none">No Claude Code task running.<small>Ask JARVIS to build or fix something in a project.</small></div>
         <div class="live" id="cc-live" hidden>
-          <div class="lh"><span class="dot"></span><b id="cl-proj"></b><span id="cl-step"></span></div>
+          <div class="lcol">
+            <div class="lh"><span class="dot"></span><b id="cl-proj"></b></div>
+            <div class="lbig" id="cl-time">0:00</div>
+            <div class="lstep" id="cl-step"></div>
+          </div>
           <div class="file" id="cl-file" hidden><div class="fn" id="cl-fn"></div><code><span class="del" id="cl-old"></span><span class="add" id="cl-new"></span></code></div>
           <div class="steps" id="cl-steps"><i data-s="read">Read</i><i data-s="edit">Edit</i><i data-s="test">Test</i><i data-s="done">Done</i></div>
         </div>
-        <div class="qa" id="qa"><div class="ql">On your clipboard</div>
-          <button type="button" data-q="Explain this simply">Explain</button><button type="button" data-q="Fix the spelling and grammar in this and give me only the corrected text">Check spelling</button><button type="button" data-q="Translate this to English (or to Hindi if it is already English)">Translate</button><button type="button" data-q="Summarize this in three short bullet points">Summarize</button></div>
       </div>
       <div class="view" id="v-chat" role="tabpanel">
         <div class="recent" id="chips"></div>
@@ -81,9 +84,13 @@
       <div id="ptoast" role="status"></div>
     </div>
 
-    <div class="bar"><input class="in" id="text" type="text" placeholder="Ask JARVIS…" aria-label="Ask JARVIS" autocomplete="off">
+    <div class="bar"><input class="in" id="text" type="text" placeholder="Ask JARVIS…" aria-label="Ask JARVIS" autocomplete="off"></div>
+    <div class="dock">
+      <div class="seg" id="seg" role="tablist">
+        <button class="on" type="button" role="tab" aria-selected="true" data-v="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></svg><span>Home</span></button><button type="button" role="tab" aria-selected="false" data-v="code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg><span>Code</span></button><button type="button" role="tab" aria-selected="false" data-v="chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/></svg><span>Chat</span></button><button type="button" role="tab" aria-selected="false" data-v="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span>Artifacts</span></button><button type="button" role="tab" aria-selected="false" data-v="vault"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1zM4 4h16v4H4zM10 12h4"/></svg><span>Vault</span></button></div>
       <button class="mic" id="pmic" type="button" aria-label="Hold to talk"><span class="lvl"></span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+    </div>
   </div>
 </div>
 

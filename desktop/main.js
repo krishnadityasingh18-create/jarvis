@@ -3,7 +3,7 @@ const path = require('path');
 const { over } = require('./hit');
 
 const URL = process.env.JARVIS_ISLAND_URL || 'http://127.0.0.1:8765/island';
-const W = 560, H = 660;
+const W = 760, H = 660;
 let win, tray, rect = null, pageWants = false, passing = false;
 
 const place = () => {

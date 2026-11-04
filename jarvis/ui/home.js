@@ -1,6 +1,6 @@
-// Home: three live cards (Claude Code, Music, Focus), Claude's progress in detail, and quick
-// actions on whatever is on the clipboard. Data arrives on the island's socket (see island.js).
-import { desk, listen, send, mmss, focusLeft } from "/ui/island.js";
+// Home: three live cards (Claude Code, Music, Focus) and quick actions on whatever is on the
+// clipboard; Code: Claude's progress in detail. Data arrives on the island's socket (see island.js).
+import { desk, listen, send, mmss, focusLeft, ui } from "/ui/island.js";
 
 const $ = q => document.querySelector(q);
 const bridge = window.island;
@@ -17,13 +17,15 @@ function claude() {
   const c = desk.claude, live = c && c.step !== "done" && c.step !== "failed";
   $("#hc-claude").classList.toggle("on", !!live);
   $("#hc-claude .arc").style.strokeDashoffset = 88 * (1 - (c ? RING[c.step] ?? 0 : 0));
-  $("#cc-time").textContent = c ? mmss(Math.max(0, Math.round(Date.now() / 1000 - c.started))) : "—";
+  const t = mmss(c ? Math.max(0, Math.round(Date.now() / 1000 - c.started)) : 0);
+  $("#cc-time").textContent = t; $("#cl-time").textContent = t;
+  warm();
   const n = c ? STEPS.indexOf(c.step) : -1;
   $("#cc-sub").textContent = !c ? "No task running" : SHORT[c.step] + (n >= 0 && n < 3 ? ` · ${n + 1} of 4` : "");
-  $("#cc-live").hidden = !c;
+  $("#cc-live").hidden = !c; $("#cc-none").hidden = !!c;
   if (!c) return;
   $("#cl-proj").textContent = c.project;
-  $("#cl-step").textContent = SUB[c.step];
+  $("#cl-step").textContent = SUB[c.step] + (n >= 0 && n < 3 ? ` · step ${n + 1} of 4` : "");
   if (c.step === "edit" || c.step === "read") {   // the file being worked on, and the change
     $("#cl-file").hidden = !c.file;
     $("#cl-fn").textContent = c.file + (c.step === "edit" ? " · being edited" : " · reading");
@@ -38,13 +40,21 @@ function claude() {
   $("#cc-live").classList.toggle("failed", c.step === "failed");
 }
 listen("claude_live", claude);
-$("#hc-claude").addEventListener("click", () => desk.claude && $("#cc-live").scrollIntoView({ behavior: "smooth", block: "nearest" }));
+$("#hc-claude").addEventListener("click", () => document.querySelector('#seg button[data-v="code"]').click());
+// the panel glows warm while you watch a task run
+function warm() {
+  const c = desk.claude, live = c && c.step !== "done" && c.step !== "failed";
+  document.querySelector("#shell").classList.toggle("warm", !!live && ui.view === "code");
+}
+ui.hooks.view.push(warm);
 
 // ---------- Music (whatever Windows says is playing: Spotify, a browser tab, …)
 function music() {
   const m = desk.media, has = !!m.title;
   $("#hc-music").classList.toggle("on", has);
-  $("#mu-cover").style.backgroundImage = has && m.thumb ? `url("${m.thumb}")` : "";
+  const art = has && m.thumb ? `url("${m.thumb}")` : "";
+  $("#mu-cover").style.backgroundImage = art; $("#mu-bg").style.backgroundImage = art;
+  $("#mu-cover").classList.toggle("on", !!art);
   $("#mu-t").textContent = has ? m.title : "Nothing playing";
   $("#mu-a").textContent = has ? m.artist || m.app || "" : "Play something";
   $("#mu-pp").innerHTML = m.playing ? PAUSE : PLAY;

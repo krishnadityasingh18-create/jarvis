@@ -41,3 +41,24 @@ direction. We build our own look in the existing island style; nothing is copied
    back to `navigator.clipboard` in a browser.
 5. Later: "drag the assistant onto anything on screen" (needs screen capture + vision),
    clipboard and file tabs, a voice tool for focus.
+
+## Revision, evening of 2026-11-04: the wide panel
+
+After a side-by-side with the reference clip, the panel moved from a tall 440×600 column to a
+wide 620 px panel:
+
+- **Height per view:** Home and Code are 300 tall, so they read at a glance. Chat, Artifacts and
+  Vault are 540, since you read them. A tab change springs the island to the new height, and
+  the panel tracks the shell's height while it moves.
+- **Header:** one 52 px line. JARVIS and its status on the left; the date, time and weather
+  chips in the centre; Full view and Collapse on the right. The orb shrinks to fit.
+- **Dock:** the tabs are icons in a bottom dock, and the selected one opens into a labelled
+  pill. The mic sits at the dock's right. The text box shows only in Chat.
+- **Code tab:** Claude Code's task is shown big, with the timer, the diff and the steps. While a
+  task runs and the tab is open, the panel tints warm. The Home card opens this tab.
+- **Cards:** bigger numbers and rounder corners. The song's cover sits in the Music card's
+  corner and also blurs into its background.
+- **Electron:** the window is 760 wide, to fit the panel.
+
+Still not built: lyrics in the pill (no free lyrics source fits) and "drag JARVIS onto
+anything on screen" (needs screen capture plus a vision model).

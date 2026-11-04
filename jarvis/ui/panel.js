@@ -1,6 +1,6 @@
-// The panel: the island expanded to 440×600. Chat (WhatsApp-style bubbles), Artifacts, Vault,
-// glance cards and an input bar. Shares island.js's springs, socket and confirm card.
-import { ui, sp, on, send, setMode, askCard, confirming, micButton, notify, ICON, MICRO } from "/ui/island.js";
+// The panel: the island expanded, wide and short (Home, Code) or taller (Chat, Artifacts, Vault).
+// A slim header (status, clock, weather), the views, and a tab dock at the bottom. Shares island.js's springs, socket and confirm card.
+import { ui, sp, on, send, setMode, geom, askCard, confirming, micButton, notify, ICON, MICRO, OPEN_H } from "/ui/island.js";
 import "/ui/home.js";
 
 const $ = q => document.querySelector(q);
@@ -45,15 +45,30 @@ const stat = () => { $("#stat").textContent = ui.state === "off" ? "Offline" : `
 ui.hooks.state.push(stat);
 wrap("route", m => { route = m.route; stat(); });
 
-// ---------- tabs: a segmented control with a sliding (spring) indicator
+// ---------- tabs: the dock at the bottom; the panel springs to each view's height
 const tabs = [...document.querySelectorAll("#seg button")];
-function tab(btn) {
-  sp.seg.to(btn.offsetLeft - 3, MICRO);
+export function tab(v) {
+  const btn = tabs.find(b => b.dataset.v === v) || tabs[0];
+  ui.view = btn.dataset.v; panel.dataset.v = ui.view;
   tabs.forEach(b => { b.classList.toggle("on", b === btn); b.setAttribute("aria-selected", b === btn); });
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + btn.dataset.v));
+  if (ui.mode === "open") geom("open", MICRO);
+  ui.hooks.view?.forEach(f => f(ui.view));
 }
-tabs.forEach(b => b.addEventListener("click", () => tab(b)));
-ui.hooks.draw = () => { $("#seg .pill").style.transform = `translateX(${sp.seg.x}px)`; };
+tabs.forEach(b => b.addEventListener("click", () => tab(b.dataset.v)));
+// while open the panel tracks the shell's height (a tab change resizes both); while opening it
+// sits at its final size and the shell clips it
+const fullH = () => OPEN_H[ui.view] || 540;
+ui.hooks.draw = () => { panel.style.height = (ui.mode === "open" && panel.classList.contains("in") ? Math.round(sp.h.x) : fullH()) + "px"; };
+panel.dataset.v = ui.view;
+
+// ---------- the header clock
+const clock = () => {
+  const d = new Date();
+  $("#clock").textContent = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) + "  " +
+    d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+};
+clock(); setInterval(clock, 10000);
 
 // ---------- in-panel notices (the drop card waits while the panel is open)
 let toastT;
@@ -69,10 +84,10 @@ for (const type of ["banner", "notify"]) {
 // ---------- glance cards
 const GLABEL = { sun: "Weather", cal: "Next class", check: "Due soon", mail: "Mail", bell: "Reminder" };
 wrap("glance", m => {
-  $("#glance").replaceChildren(...(m.items || []).map(g => {
-    const c = el("div", "g"), l = el("div", "l"), v = el("div", "v", g.value + " ");
-    l.append(svg(ICON[g.icon] || ICON.check), GLABEL[g.icon] || "");
-    v.append(el("small", null, g.detail || "")); c.append(l, v); return c;
+  $("#glance").replaceChildren(...(m.items || []).slice(0, 2).map(g => {   // compact: icon and value, the rest on hover
+    const c = el("span", "g", g.value);
+    c.title = `${GLABEL[g.icon] || ""}: ${g.value} ${g.detail || ""}`.trim();
+    c.prepend(svg(ICON[g.icon] || ICON.check)); return c;
   }));
 });
 
@@ -261,6 +276,4 @@ addEventListener("drop", e => {
   }
 });
 
-// ---------- boot: the indicator starts under the selected tab
-requestAnimationFrame(() => { const b = $("#seg button.on"); sp.seg.x = sp.seg.t = b.offsetLeft - 3; });
 stat();
