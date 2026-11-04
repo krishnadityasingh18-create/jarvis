@@ -3,6 +3,7 @@ import base64
 import inspect
 import json
 import os
+import threading
 import time as clock_time
 import webbrowser
 import uuid
@@ -15,7 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from jarvis import artifacts, brain, db, fullscreen, remote, tools, whatsapp
+from jarvis import artifacts, brain, db, desk, fullscreen, remote, tools, whatsapp
 from jarvis.tools import outbound, vault
 from jarvis.tools.apps import _runs_code
 
@@ -57,6 +58,10 @@ class Hub:
         self.linking: asyncio.Task | None = None   # the running WhatsApp link poller
         self.tasks: set[asyncio.Task] = set()          # island requests that may wait on a yes
         self.fullscreen = False
+        self.media: dict = {"type": "media", "title": ""}   # the song playing, for new pages
+        self.claude_live: dict | None = None                 # the last Claude Code progress
+        self.focus: dict = {"type": "focus", "until": 0, "minutes": 0}
+        self.focus_task: asyncio.Task | None = None
         self.open_full_view = self._no_full_view  # __main__ replaces it with the Edge HUD
 
     async def _no_full_view(self) -> None:
@@ -131,6 +136,10 @@ class Hub:
                 self.sockets.discard(sock)   # that window went away
 
     async def send_island_data(self, sock: WebSocket) -> None:
+        if self.claude_live:
+            await sock.send_json(self.claude_live)
+        await sock.send_json(self.media)
+        await sock.send_json(self.focus)
         await sock.send_json(self.vault())
         await sock.send_json(await asyncio.to_thread(self.artifacts))
         self.spawn(self.send_glance(sock))
@@ -171,6 +180,8 @@ class Hub:
         await self.broadcast(self.mic())
 
     async def broadcast(self, msg: dict) -> None:
+        if msg["type"] == "claude_live":   # a page opened mid-task still sees the card
+            self.claude_live = msg
         if self.voice:  # keep the voice state machine in step with the turn
             if msg == {"type": "state", "state": "speaking"}:
                 self.voice.event("speak_start")
@@ -326,6 +337,43 @@ class Hub:
                 await self.broadcast({"type": "banner", "text": f"Scheduler error: {e}"})
             await asyncio.sleep(30)
 
+    async def watch_media(self) -> None:
+        """Tell the island what's playing; the cover is fetched only when the song changes."""
+        while True:
+            try:
+                m = await desk.media()
+                if m and (m["title"], m["artist"]) != (self.media.get("title"), self.media.get("artist")):
+                    m = await desk.media(thumb=True)
+                msg = {"type": "media", **m, "thumb": m.get("thumb", self.media.get("thumb", ""))}                     if m else {"type": "media", "title": ""}
+                if msg != self.media:
+                    self.media = msg
+                    await self.broadcast(msg)
+            except Exception:   # a player closing mid-read: try again next second
+                pass
+            await asyncio.sleep(1)
+
+    async def media_control(self, action: str) -> None:
+        if not await desk.media_control(action):
+            await self.broadcast({"type": "banner", "text": "Nothing is playing"})
+
+    async def set_focus(self, minutes: int) -> None:
+        """Start (minutes > 0) or stop (0) the focus timer; at the end the island tells you."""
+        if self.focus_task and not self.focus_task.done():
+            self.focus_task.cancel()
+        minutes = max(0, min(int(minutes), 240))
+        self.focus = {"type": "focus", "minutes": minutes,
+                      "until": round(clock_time.time() + minutes * 60, 3) if minutes else 0}
+        await self.broadcast(self.focus)
+        if minutes:
+            self.focus_task = asyncio.create_task(self._focus_end(minutes))
+
+    async def _focus_end(self, minutes: int) -> None:
+        await asyncio.sleep(minutes * 60)
+        self.focus = {"type": "focus", "until": 0, "minutes": 0}
+        await self.broadcast(self.focus)
+        await self.broadcast({"type": "notify", "icon": "reminder", "title": "Focus done",
+                              "text": f"{minutes} minutes of focus, sir. Take a break."})
+
     async def watch_fullscreen(self) -> None:
         """Tell the island when a game, video or presentation takes the screen."""
         while True:
@@ -454,8 +502,15 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     async def lifespan(app):
         hub.loop = asyncio.get_running_loop()
         bg = [asyncio.create_task(hub.clock()), asyncio.create_task(hub.watch_fullscreen()),
-              asyncio.create_task(hub.whatsapp_replies())]
+              asyncio.create_task(hub.whatsapp_replies()), asyncio.create_task(hub.watch_media())]
+        stop_volume = threading.Event()
+        desk.watch_volume(lambda level, muted: hub.loop.call_soon_threadsafe(
+            hub.spawn, hub.broadcast({"type": "volume", "level": level, "muted": muted})),
+            stop=stop_volume)
         yield
+        stop_volume.set()
+        if hub.focus_task:
+            hub.focus_task.cancel()
         for t in bg:
             t.cancel()
 
@@ -542,6 +597,10 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                         await hub.open_full_view()
                     else:   # a plain function (e.g. launching Edge) must not block the loop
                         await asyncio.to_thread(hub.open_full_view)
+                elif m.get("type") == "media" and m.get("action") in desk.ACTIONS:
+                    hub.spawn(hub.media_control(m["action"]))
+                elif m.get("type") == "focus" and isinstance(m.get("minutes"), (int, float)):
+                    await hub.set_focus(int(m["minutes"]))
                 elif m.get("type") == "upload":
                     await sock.send_json(save_upload(str(m.get("name", "")),
                                                      str(m.get("data", ""))))
