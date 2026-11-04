@@ -16,7 +16,7 @@ class S {
   get done() { return Math.abs(this.x - this.t) < .05 && Math.abs(this.v) < .05; }
 }
 export const sp = { w: new S(120), h: new S(38), r: new S(19), ox: new S(4), oy: new S(4), os: new S(28),
-  bx: new S(0), ty: new S(0), ny: new S(10), nw: new S(120), nh: new S(38), seg: new S(0), lvl: new S(0) };
+  bx: new S(0), mx: new S(0), ty: new S(0), ny: new S(10), nw: new S(120), nh: new S(38), seg: new S(0), lvl: new S(0) };
 sp.lvl.p = P(.16, .15);
 
 const shell = $("#shell"), orbEl = $("#orb"), mid = $("#mid"), bars = [...document.querySelectorAll("#eq i")];
@@ -26,6 +26,13 @@ const bridge = window.island;   // the Electron window (absent in a plain browse
 
 // ---------- state shared with the panel
 export const ui = { mode: "idle", state: "off", lastReply: "", hooks: { mode: [], state: [] } };
+// what the desk is doing: the song, the focus timer, Claude Code's progress (home.js shows them big)
+export const desk = { media: { title: "" }, focus: { until: 0, minutes: 0 }, claude: null };
+// several handlers for one socket message, each isolated (a throw in one doesn't skip the others)
+export function listen(type, f) {
+  const prev = on[type];
+  on[type] = m => { try { prev?.(m); } catch (err) { console.warn("island: couldn't show", type, err); } f(m); };
+}
 let capW = 0, holdUntil = 0, capTok = 0, hovering = false;
 
 // ---------- geometry
@@ -91,12 +98,16 @@ function draw() {
   const bx = L + w - 19 + sp.bx.x;
   box($("#gBub"), bx, T, 38, 38, 19); $("#gBub").style.opacity = sp.bx.x > 1 && ui.mode !== "open" ? 1 : 0;
   $("#bub").style.transform = `translate(${bx}px,${T}px)`; $("#bub").style.opacity = sp.bx.x > 40 ? 1 : 0;
+  // the song: a round cover splits off the island's left edge (the mirror of the bubble)
+  const mx = L - 19 - sp.mx.x;
+  box($("#gMBub"), mx, T, 38, 38, 19); $("#gMBub").style.opacity = sp.mx.x > 1 && ui.mode !== "open" ? 1 : 0;
+  $("#mbub").style.transform = `translate(${mx}px,${T}px)`; $("#mbub").style.opacity = sp.mx.x > 40 ? 1 : 0;
   // notification drop
   const nw = Math.round(sp.nw.x), nh = Math.round(sp.nh.x);
   box($("#gNote"), Math.round((innerWidth - nw) / 2), Math.round(sp.ny.x), nw, nh, Math.min(nh / 2, 24));
   $("#note").style.transform = `translate(${Math.round((innerWidth - 330) / 2)}px,${Math.round(sp.ny.x)}px)`;
   // the gooey layer costs a filter pass per frame: only while something splits off
-  $("#goo").style.display = sp.bx.x > .5 || noteOn || sp.ny.x > 10.5 ? "block" : "none";
+  $("#goo").style.display = sp.bx.x > .5 || sp.mx.x > .5 || noteOn || sp.ny.x > 10.5 ? "block" : "none";
   ui.hooks.draw?.();
 }
 addEventListener("resize", () => { wasMoving = true; });
@@ -159,10 +170,13 @@ export let glance = [];
 let ti = 0;
 const soon = () => glance.find(g => g.icon === "bell" && g.at && (left(g) > 0 && left(g) <= 600));
 const left = g => Math.round((Date.parse(g.at) - Date.now()) / 1000);
-const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+export const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+export const focusLeft = () => desk.focus.until ? Math.max(0, Math.round(desk.focus.until - Date.now() / 1000)) : 0;
 function ticker(now) {
   if (ui.state !== "idle" || !(ui.mode === "idle" || ui.mode === "peek") || performance.now() < holdUntil) return;
   if (!now && !reduced) ti++;
+  const f = focusLeft();
+  if (f > 0) return midLabel(`<span class="tk fo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><circle cx="12" cy="12" r="8"/></svg>${mmss(f)}</span>`, 26);
   const due = soon();   // a reminder in the next 10 minutes stays put, counting down
   const g = due || glance[ti % glance.length];
   if (!g) return midLabel("");   // nothing to show yet: just the orb and the mic
@@ -228,16 +242,33 @@ function confirmQuestion(m) {
 // ---------- live activities: a bubble splits off the island with a progress ring
 const ACTIVITY = { ask_claude: "claude", send_whatsapp: "wa" };
 let activity = null;
+const STEP = { start: .08, read: .3, edit: .6, test: .85, done: 1, failed: 1 };
 function bubble() {
-  const due = soon(), b = $("#bub");
+  const due = soon(), b = $("#bub"), step = activity === "ask_claude" && STEP[desk.claude?.step];
   const kind = activity ? ACTIVITY[activity] : due ? "bell" : null;
-  b.className = kind ? kind + (activity ? " spin" : "") : b.className;
-  if (due && !activity) $("#arc").style.strokeDashoffset = 88 * (1 - left(due) / 600);
+  b.className = kind ? kind + (activity && !step ? " spin" : "") : b.className;
+  if (step) $("#arc").style.strokeDashoffset = 88 * (1 - step);   // Claude Code: read → edit → test → done
+  else if (due && !activity) $("#arc").style.strokeDashoffset = 88 * (1 - left(due) / 600);
   else $("#arc").style.strokeDashoffset = "";
   const out = !!kind && ui.mode !== "open" && ui.mode !== "confirm";
   if ((sp.bx.t > 0) !== out) sp.bx.to(out ? 50 : 0, out ? DROP : COLLAPSE);
+  const song = !!desk.media.title && desk.media.playing && ui.mode !== "open" && ui.mode !== "confirm";
+  $("#mbub").classList.toggle("play", !!desk.media.playing);
+  if ((sp.mx.t > 0) !== song) sp.mx.to(song ? 50 : 0, song ? DROP : COLLAPSE);
 }
-setInterval(() => { bubble(); if (soon() && ui.state === "idle" && ui.mode === "idle") ticker(true); }, 1000);
+setInterval(() => { bubble(); if ((soon() || focusLeft()) && ui.state === "idle" && ui.mode === "idle") ticker(true); }, 1000);
+
+// ---------- volume: the island stretches into a big bar while the volume changes
+let volT;
+function volume(m) {
+  if (ui.mode === "open" || ui.mode === "confirm" || ui.state !== "idle") return;
+  const pct = m.muted ? 0 : Math.round(m.level * 100);
+  holdUntil = performance.now() + 1600; clearTimeout(volT);
+  midLabel(`<span class="vol${m.muted ? " mute" : ""}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 9h4l5-4v14l-5-4H4z"/>${m.muted ? "" : '<path d="M16 8.5a4.5 4.5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg><i><b style="width:${pct}%"></b></i><span class="d">${pct}</span></span>`, 6);
+  if (ui.mode === "idle" || ui.mode === "peek") setMode("caption");
+  volT = later(1650, () => { holdUntil = 0; if (ui.mode === "caption" && ui.state === "idle") setMode("idle"); ticker(true); });
+  wake(1700);
+}
 
 // ---------- notifications: a card drops out of the island, stays ~3.5 s, is pulled back in
 const notes = [];
@@ -314,6 +345,19 @@ export const on = {
   glance(m) { glance = m.items || []; ticker(true); bubble(); },
   fullscreen(m) { fullscreen = !!m.on; tuck(); },
   tool_start(m) { if (ACTIVITY[m.name]) { activity = m.name; bubble(); } },
+  claude_live(m) {
+    desk.claude = m;
+    if (m.step === "done" || m.step === "failed") later(1500, () => { if (activity === "ask_claude") { activity = null; bubble(); } });
+    else activity = "ask_claude";   // "ask Claude …" straight from the user starts no tool, but still shows
+    bubble();
+  },
+  media(m) {
+    desk.media = m;
+    $("#mbub .art").style.backgroundImage = m.thumb ? `url("${m.thumb}")` : "";
+    bubble();
+  },
+  focus(m) { desk.focus = m; if (ui.mode === "idle" && ui.state === "idle") ticker(true); },
+  volume,
   action(m) {
     if (m.tool === activity) { activity = null; bubble(); }
     if (m.tool === "send_whatsapp" && m.status === "done" && ui.mode !== "open") {   // only once the helper said so
@@ -385,5 +429,6 @@ core.setState("off");
 offlineLabel();
 setMode("idle");
 bridge?.onFullView?.(() => send({ type: "full_view" }));   // the tray's "Full view" (always via the server)
+bridge?.onToggle?.(() => setMode(ui.mode === "open" ? "idle" : "open"));   // Ctrl+Alt+J
 requestAnimationFrame(t => { last = t; frame(t); });
 connect();

@@ -5,4 +5,6 @@ contextBridge.exposeInMainWorld('island', {
   onFullView: (cb) => ipcRenderer.on('island:full-view', () => cb()),
   rect: (r) => ipcRenderer.send('island:rect', r),
   focusable: (on) => ipcRenderer.send('island:focusable', !!on),
+  onToggle: (cb) => ipcRenderer.on('island:toggle', () => cb()),
+  clipboard: () => ipcRenderer.invoke('island:clipboard'),
 });

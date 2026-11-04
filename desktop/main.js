@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage, globalShortcut, clipboard } = require('electron');
 const path = require('path');
 const { over } = require('./hit');
 
@@ -44,6 +44,9 @@ if (!app.requestSingleInstanceLock()) {
   ipcMain.on('island:rect', (_, r) => { rect = r && { x: +r.x, y: +r.y, w: +r.w, h: +r.h }; });
   setInterval(() => apply(pageWants || cursorOver()), 50);
   ipcMain.on('island:focusable', (_, on) => { win.setFocusable(on); if (on) win.focus(); });
+  ipcMain.handle('island:clipboard', () => clipboard.readText());   // the panel's quick actions
+  // Ctrl+Alt+J opens or closes the panel from anywhere (another app may own it: then it's just off)
+  globalShortcut.register('Control+Alt+J', () => win.webContents.send('island:toggle'));
 
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'tray.png')));
   tray.setToolTip('JARVIS');

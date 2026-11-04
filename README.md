@@ -69,7 +69,11 @@ app underneath.
     the island's edge until the answer starts.
   - **Speaking:** JARVIS's words, with a colour ring around the edge.
 - **Hover** to peek at the last reply. **Hold the mic** to talk (same as Right
-  Ctrl). **Click** the island to open the panel; Esc or the arrow closes it.
+  Ctrl). **Click** the island (or press **Ctrl+Alt+J** anywhere) to open the
+  panel; Esc or the arrow closes it.
+- **All at once:** while a song plays its cover spins in a round bubble on the
+  island's left; a running focus timer counts down in purple in the middle.
+  Changing the volume stretches the island into a big volume bar for a moment.
 - **Questions** (WhatsApp sends, file edits, devices) grow the island into a
   card with Cancel and Send/Allow. Saying "yes" or "no" works too.
 - **Running jobs** (a Claude Code task, a WhatsApp send, a reminder due within
@@ -77,7 +81,13 @@ app underneath.
   WhatsApp replies drop out of it as a card.
 - **Fullscreen** games, videos and presentations: the island tucks away. "Hey
   Jarvis", a question or a reminder brings it back.
-- **The panel:** glance cards (weather, next class, due soon), then three tabs:
+- **The panel:** glance cards (weather, next class, due soon), then four tabs:
+  - **Home:** three live cards. **Claude Code** shows the task running (time,
+    step 2 of 4) and, below, the project, the file being edited with its change
+    and a Read, Edit, Test, Done bar. **Music** controls whatever Windows says is
+    playing (Spotify, a browser tab…). **Focus** starts or stops a 25-minute
+    timer. Under them, **quick actions** on your clipboard: Explain, Check
+    spelling, Translate, Summarize (the answer appears in Chat).
   - **Chat:** your recent chats as chips, and the conversation laid out like
     WhatsApp. Voice turns have a mic mark.
   - **Artifacts:** what JARVIS made for you (files, saved answers, Claude Code

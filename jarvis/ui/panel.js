@@ -1,6 +1,7 @@
 // The panel: the island expanded to 440×600. Chat (WhatsApp-style bubbles), Artifacts, Vault,
 // glance cards and an input bar. Shares island.js's springs, socket and confirm card.
 import { ui, sp, on, send, setMode, askCard, confirming, micButton, notify, ICON, MICRO } from "/ui/island.js";
+import "/ui/home.js";
 
 const $ = q => document.querySelector(q);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };

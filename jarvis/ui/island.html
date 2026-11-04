@@ -13,7 +13,7 @@
     <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter>
 </svg>
 
-<div id="goo"><div id="gPill"></div><div id="gBub"></div><div id="gNote"></div></div>
+<div id="goo"><div id="gPill"></div><div id="gBub"></div><div id="gMBub"></div><div id="gNote"></div></div>
 <div id="glow"></div><div id="rim"></div><div id="cometGlow"></div><div id="comet"></div>
 
 <div id="shell" role="button" aria-label="JARVIS">
@@ -43,10 +43,31 @@
     <div class="glance" id="glance"></div>
 
     <div class="seg" id="seg" role="tablist"><div class="pill"></div>
-      <button class="on" type="button" role="tab" aria-selected="true" data-v="chat">Chat</button><button type="button" role="tab" aria-selected="false" data-v="art">Artifacts</button><button type="button" role="tab" aria-selected="false" data-v="vault">Vault</button></div>
+      <button class="on" type="button" role="tab" aria-selected="true" data-v="home">Home</button><button type="button" role="tab" aria-selected="false" data-v="chat">Chat</button><button type="button" role="tab" aria-selected="false" data-v="art">Artifacts</button><button type="button" role="tab" aria-selected="false" data-v="vault">Vault</button></div>
 
     <div class="body">
-      <div class="view on" id="v-chat" role="tabpanel">
+      <div class="view on" id="v-home" role="tabpanel">
+        <div class="cards">
+          <button class="card cc" id="hc-claude" type="button" title="Claude Code">
+            <div class="l">Claude Code<svg class="ring" viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="14"/><circle class="arc" cx="18" cy="18" r="14" stroke-dasharray="88" stroke-dashoffset="88"/></svg></div>
+            <div class="big" id="cc-time">—</div><div class="sub" id="cc-sub">No task running</div></button>
+          <div class="card mu" id="hc-music"><div class="cover" id="mu-cover"></div>
+            <div class="l">Music</div>
+            <div class="t" id="mu-t">Nothing playing</div><div class="sub" id="mu-a">Play something</div>
+            <div class="ctl"><button type="button" class="cb" data-m="prev" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button><button type="button" class="cb pp" data-m="toggle" id="mu-pp" aria-label="Play or pause"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button type="button" class="cb" data-m="next" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button></div></div>
+          <div class="card fo" id="hc-focus">
+            <div class="l">Focus<button type="button" class="cb pp" id="fo-go" aria-label="Start focus"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button></div>
+            <div class="big" id="fo-time">25:00</div><div class="sub" id="fo-sub">Ready to start</div></div>
+        </div>
+        <div class="live" id="cc-live" hidden>
+          <div class="lh"><span class="dot"></span><b id="cl-proj"></b><span id="cl-step"></span></div>
+          <div class="file" id="cl-file" hidden><div class="fn" id="cl-fn"></div><code><span class="del" id="cl-old"></span><span class="add" id="cl-new"></span></code></div>
+          <div class="steps" id="cl-steps"><i data-s="read">Read</i><i data-s="edit">Edit</i><i data-s="test">Test</i><i data-s="done">Done</i></div>
+        </div>
+        <div class="qa" id="qa"><div class="ql">On your clipboard</div>
+          <button type="button" data-q="Explain this simply">Explain</button><button type="button" data-q="Fix the spelling and grammar in this and give me only the corrected text">Check spelling</button><button type="button" data-q="Translate this to English (or to Hindi if it is already English)">Translate</button><button type="button" data-q="Summarize this in three short bullet points">Summarize</button></div>
+      </div>
+      <div class="view" id="v-chat" role="tabpanel">
         <div class="recent" id="chips"></div>
         <div id="thread"></div>
       </div>
@@ -67,6 +88,7 @@
 </div>
 
 <div id="bub" aria-hidden="true"><svg viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="14" fill="none" stroke-width="4"/><circle id="arc" cx="18" cy="18" r="14" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="88" stroke-dashoffset="0"/></svg></div>
+<div id="mbub" aria-hidden="true"><div class="art"></div></div>
 <div id="note" role="status"><div class="ic"></div><div style="min-width:0"><div class="n"></div><div class="k"></div></div></div>
 
 <script src="/ui/marked.min.js"></script>

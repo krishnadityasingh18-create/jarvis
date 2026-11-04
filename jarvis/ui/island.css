@@ -160,7 +160,7 @@ body.st-off .head .s::before { background: #8e8e93; }
 .seg button { position: relative; z-index: 1; flex: 1; height: 28px; border: 0; background: none; color: var(--dim);
   font: 500 13px var(--font); cursor: pointer; transition: color .2s; }
 .seg button.on { color: var(--ink); }
-.seg .pill { position: absolute; top: 3px; left: 3px; width: calc((100% - 6px) / 3); height: 28px; border-radius: 9px; background: rgba(255,255,255,.12);
+.seg .pill { position: absolute; top: 3px; left: 3px; width: calc((100% - 6px) / 4); height: 28px; border-radius: 9px; background: rgba(255,255,255,.12);
   box-shadow: 0 1px 2px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06); will-change: transform; }
 
 .body { position: relative; flex: 1; min-height: 0; }
@@ -252,6 +252,82 @@ body.st-off .head .s::before { background: #8e8e93; }
 .bar .mic svg { width: 16px; height: 16px; }
 .ib:focus-visible, .chip:focus-visible, .tile:focus-visible, .seg button:focus-visible { outline: 2px solid rgba(255,255,255,.7); outline-offset: 2px; }
 
+/* ---------- island v2: the song bubble, focus in the pill, the volume bar ---------- */
+#mbub { position: fixed; left: 0; top: 0; width: 38px; height: 38px; display: grid; place-items: center; opacity: 0;
+  transition: opacity .2s; pointer-events: none; }
+#mbub .art { width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #3FC8FF, #1d6b7a 60%, #0c2a30);
+  background-size: cover; background-position: center; box-shadow: 0 0 0 1.5px rgba(255,255,255,.12); }
+#mbub.play .art { animation: disc 8s linear infinite; }
+@keyframes disc { to { transform: rotate(360deg); } }
+.tk.fo { color: #C9A6FF; } .tk.fo svg { opacity: 1; }
+.vol { display: inline-flex; align-items: center; gap: 10px; min-width: 230px; animation: wordIn .3s cubic-bezier(.2,.8,.2,1) both; }
+.vol svg { width: 16px; height: 16px; flex: none; }
+.vol i { position: relative; flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,.16); overflow: hidden; }
+.vol i b { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: #fff; transition: width .18s cubic-bezier(.2,.8,.2,1); }
+.vol .d { font-variant-numeric: tabular-nums; color: var(--dim); width: 22px; text-align: right; font-size: 12px; }
+.vol.mute i b { background: var(--faint); }
+
+/* ---------- Home: three cards, Claude's live strip, quick actions ---------- */
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.card { position: relative; height: 126px; border-radius: 18px; padding: 10px 11px; overflow: hidden; text-align: left; border: 1px solid var(--line);
+  display: flex; flex-direction: column; min-width: 0; color: var(--ink); font: inherit; isolation: isolate;
+  transition: transform .35s cubic-bezier(.25,1.4,.45,1), border-color .3s; }
+.card .l { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: rgba(255,255,255,.72); min-height: 22px; }
+.card .big { margin-top: auto; font-size: 24px; font-weight: 650; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.card .t { margin-top: auto; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .sub { font-size: 11px; color: rgba(255,255,255,.65); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card.cc { background: linear-gradient(160deg, #6b3a26, #2b1710 70%); cursor: pointer; }
+.card.cc:hover { transform: translateY(-2px); }
+.card.cc .ring { width: 20px; height: 20px; transform: rotate(-90deg); }
+.card.cc .ring circle { fill: none; stroke-width: 4; }
+.card.cc .ring .track { stroke: rgba(255,138,76,.25); }
+.card.cc .ring .arc { stroke: #FF8A4C; stroke-linecap: round; transition: stroke-dashoffset .6s cubic-bezier(.2,.8,.2,1); }
+.card.cc:not(.on) .big { color: rgba(255,255,255,.55); }
+.card.mu { background: linear-gradient(160deg, #1d4a52, #0f2226 70%); }
+.card.mu .cover { position: absolute; inset: 0; z-index: -1; background-size: cover; background-position: center; opacity: 0; transition: opacity .5s; }
+.card.mu.on .cover { opacity: .55; }
+.card.mu.on::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.7)); }
+.card .ctl { display: flex; gap: 4px; margin-top: 6px; }
+.cb { width: 24px; height: 24px; border-radius: 50%; border: 0; display: grid; place-items: center; cursor: pointer; flex: none;
+  background: rgba(255,255,255,.14); color: #fff; transition: transform .25s cubic-bezier(.3,1.6,.5,1), background .2s; }
+.cb:hover { background: rgba(255,255,255,.24); }
+.cb:active { transform: scale(.88); }
+.cb:disabled { opacity: .35; cursor: default; }
+.cb svg { width: 11px; height: 11px; }
+.cb.pp { background: #fff; color: #000; }
+.cb.pp:hover { background: #e6e6ea; }
+.card.fo { background: linear-gradient(160deg, #5a3b9c, #241640 70%); }
+.card.fo::before { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: calc(var(--p, 0) * 100%); background: #C9A6FF;
+  transition: width 1s linear; }
+.card.fo.on .big { color: #fff; }
+
+.live { margin-top: 10px; padding: 10px 12px; border-radius: 16px; background: rgba(255,138,76,.07); border: 1px solid rgba(255,138,76,.2); }
+.live[hidden] { display: none; }
+.live .lh { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--dim); }
+.live .lh b { color: var(--ink); font-weight: 600; }
+.live .dot { width: 7px; height: 7px; border-radius: 50%; background: #FF8A4C; box-shadow: 0 0 8px #FF8A4C; animation: blink 1.4s ease-in-out infinite; }
+.live.failed .dot { background: #8e8e93; box-shadow: none; animation: none; }
+@keyframes blink { 50% { opacity: .35; } }
+.live .file { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,.3); }
+.live .file[hidden] { display: none; }
+.live .fn { font-size: 11px; color: var(--dim); margin-bottom: 4px; }
+.live code { display: block; font: 11px/1.55 ui-monospace, Consolas, monospace; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.live .del { color: #ff7b72; }
+.live .add { color: #7ee787; }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.steps i { font-style: normal; font-size: 10.5px; color: var(--faint); padding-top: 6px; border-top: 3px solid rgba(255,255,255,.1); transition: color .3s, border-color .3s; }
+.steps i.done { color: var(--dim); border-color: #FF8A4C; }
+.steps i.now { color: var(--ink); border-color: #FFC46B; }
+
+.qa { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; align-items: center; }
+.qa .ql { width: 100%; font-size: 11px; color: var(--dim); }
+.qa button { padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--ink);
+  font: 12px var(--font); cursor: pointer; transition: background .2s, transform .25s cubic-bezier(.3,1.6,.5,1); }
+.qa button:hover { background: rgba(255,255,255,.12); }
+.qa button:active { transform: scale(.95); }
+.qa button:disabled { color: var(--dim); }
+.card:focus-visible, .cb:focus-visible, .qa button:focus-visible { outline: 2px solid rgba(255,255,255,.7); outline-offset: 2px; }
+
 /* Windows "reduce animations": no loops; words and labels simply appear */
 @media (prefers-reduced-motion: reduce) {
   #glow, #rim, .shim { animation: none; }
@@ -263,4 +339,6 @@ body.st-off .head .s::before { background: #8e8e93; }
   #panel { filter: none; transform: translateX(-50%); transition-duration: .15s; }
   .view, #ptoast { filter: none !important; transform: none !important; transition-duration: .15s; }
   .b, .tile { animation: none; transition: none; }
+  #mbub.play .art, .live .dot { animation: none; }
+  .card, .vol { transition: none; animation: none; }
 }
