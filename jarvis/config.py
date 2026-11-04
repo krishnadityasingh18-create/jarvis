@@ -95,7 +95,7 @@ def load_config(path: Path = Path("config.toml")) -> Config:
         voice=v["voice"],
         voice_speed=v["speed"],
         whisper_model=v["whisper_model"],
-        db_path=Path(t["data"]["db_path"]),
+        db_path=Path(t["data"]["db_path"]).resolve(),   # stored file paths must not depend on the cwd
         agents={n: Agent(name=n, **{**a, "prompt": a["prompt"].strip()})
                 for n, a in t["agents"].items()},
         file_roots=[Path(r).expanduser() for r in t["files"]["roots"]],

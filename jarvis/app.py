@@ -1,17 +1,23 @@
 import asyncio
 import base64
+import inspect
+import json
+import os
 import time as clock_time
+import webbrowser
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from jarvis import brain, db, remote, tools
-from jarvis.tools import outbound
+from jarvis import artifacts, brain, db, fullscreen, remote, tools, whatsapp
+from jarvis.tools import outbound, vault
+from jarvis.tools.apps import _runs_code
 
 UI = Path(__file__).parent / "ui"
 ALLOWED_ORIGINS = {"http://127.0.0.1:8765", "http://localhost:8765"}
@@ -25,6 +31,10 @@ def _tunnelled(headers) -> bool:
 
 UPLOADS = Path.home() / "Downloads" / "JARVIS uploads"   # inside files.roots: JARVIS can read them
 MAX_UPLOAD = 10 * 1024 * 1024   # base64 over the socket; uvicorn caps a message at 16 MB
+
+VAULT_TOOLS = {"keep", "remove_from_vault"}
+DAY_TOOLS = {"remind", "cancel_reminder", "add_task", "complete_task", "add_class", "remove_class"}
+GLANCE_EVERY_S = 15 * 60
 
 VOICE_WAIT_S = 20     # the voice loop listens 8 s and always reports back; this is a backstop
 BUTTON_WAIT_S = 60    # no mic: wait this long for a click
@@ -44,6 +54,88 @@ class Hub:
         self.route = cfg.default_route
         self.loop: asyncio.AbstractEventLoop | None = None
         self.pending: dict[str, asyncio.Future] = {}   # open confirmation questions
+        self.linking: asyncio.Task | None = None   # the running WhatsApp link poller
+        self.tasks: set[asyncio.Task] = set()          # island requests that may wait on a yes
+        self.fullscreen = False
+        self.open_full_view = self._no_full_view  # __main__ replaces it with the Edge HUD
+
+    async def _no_full_view(self) -> None:
+        await self.broadcast({"type": "banner", "text": "Full view isn't available"})
+
+    def vault(self) -> dict:
+        return {"type": "vault", "items": vault.items(self.conn)}
+
+    def artifacts(self) -> dict:
+        return {"type": "artifacts", "items": artifacts.items(self.conn)}
+
+    def glance(self) -> dict:
+        return {"type": "glance", "items": artifacts.glance(self.cfg, self.conn)}
+
+    def spawn(self, coro) -> None:
+        """Run an island request beside the socket loop (a big keep asks, and the answer
+        arrives on that same socket)."""
+        t = asyncio.create_task(coro)
+        self.tasks.add(t)
+        t.add_done_callback(self.tasks.discard)
+
+    async def desk_run(self, name: str, **args) -> str:
+        ctx = tools.Ctx(self.cfg, self.conn, self.confirm, self.broadcast)
+        return await tools.run(ctx, {"id": "island", "name": name, "arguments": json.dumps(args)})
+
+    async def keep(self, m: dict) -> None:
+        if m.get("data"):   # a dropped file wins over text
+            up = await asyncio.to_thread(save_upload, str(m.get("name", "")), str(m["data"]))
+            if up["type"] != "uploaded":
+                await self.broadcast(up)
+                return
+            await self.desk_run("keep", path=up["path"])
+            Path(up["path"]).unlink(missing_ok=True)   # kept (the vault has its own copy) or not: ours to drop
+        elif m.get("text"):
+            t = str(m["text"]).strip()
+            u = urlparse(t)
+            if u.scheme in ("http", "https") and u.netloc and not any(c.isspace() for c in t):
+                await self.desk_run("keep", url=t)   # a dropped link is kept as a link
+            else:
+                await self.desk_run("keep", text=str(m["text"]))
+        else:
+            await self.broadcast({"type": "banner", "text": "Nothing to keep"})
+
+    async def open_item(self, kind: str, item_id) -> None:
+        """Open a vault or artifact item by id; the path always comes from our own records."""
+        if kind == "vault":
+            it = next((i for i in vault.items(self.conn) if i["id"] == item_id), None)
+        elif kind == "artifact":
+            it = await asyncio.to_thread(artifacts.get, self.conn, item_id)
+        else:
+            it = None
+        path = (it or {}).get("path") or ""
+        if it and it.get("url"):
+            if urlparse(it["url"]).scheme in ("http", "https"):
+                await asyncio.to_thread(webbrowser.open, it["url"])
+                return
+        elif path and Path(path).is_absolute() and Path(path).exists():
+            if _runs_code(Path(path).name):
+                await self.broadcast({"type": "banner", "text": "I don't open programs or scripts"})
+            else:
+                await asyncio.to_thread(os.startfile, path)
+            return
+        await self.broadcast({"type": "banner", "text": "That item was moved or deleted"})
+
+    async def send_glance(self, sock: WebSocket | None = None) -> None:
+        """The glance may wait on the weather: always run it beside the caller."""
+        msg = await asyncio.to_thread(self.glance)
+        try:
+            await (sock.send_json(msg) if sock else self.broadcast(msg))
+        except Exception:
+            if sock:
+                self.sockets.discard(sock)   # that window went away
+
+    async def send_island_data(self, sock: WebSocket) -> None:
+        await sock.send_json(self.vault())
+        await sock.send_json(await asyncio.to_thread(self.artifacts))
+        self.spawn(self.send_glance(sock))
+        if self.fullscreen:
+            await sock.send_json({"type": "fullscreen", "on": True})
 
     def usage(self) -> dict:
         return {"type": "usage", "spent_inr": round(db.month_spend_inr(self.conn), 2),
@@ -92,6 +184,12 @@ class Hub:
         if msg["type"] == "turn_end":
             await self.broadcast(self.usage())
             await self.broadcast(self.chats())
+            await self.broadcast(await asyncio.to_thread(self.artifacts))
+        elif msg["type"] == "action":   # also fires for an undo of the same tool
+            if msg["tool"] in VAULT_TOOLS:
+                await self.broadcast(self.vault())
+            elif msg["tool"] in DAY_TOOLS:
+                self.spawn(self.send_glance())
 
     async def confirm(self, text: str) -> bool:
         """Ask the user; resolved by a button, a spoken yes/no, a timeout or a cancel (no)."""
@@ -141,6 +239,45 @@ class Hub:
         voice_ok = self.voice is None or getattr(self.voice, "loaded", True)
         return voice_ok and (bool(self.sockets) or elapsed >= self.READY_TIMEOUT_S)
 
+    async def whatsapp_state(self) -> dict:
+        """The helper's link state for the island: linked / unlinked / qr (with the image)."""
+        c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
+        st = (await asyncio.to_thread(c.status) if c else None) or {}
+        if c is None and not whatsapp.installed():   # the panel then says how to install it
+            return {"type": "whatsapp", "state": "missing", "qr": ""}
+        return {"type": "whatsapp", "state": st.get("state", "unlinked"), "qr": st.get("qr") or ""}
+
+    async def whatsapp_link(self) -> None:
+        """The user asked to link: show the helper's QR as it appears, until linked (2 min)."""
+        last = None
+        for _ in range(60):
+            msg = await self.whatsapp_state()
+            if msg != last:
+                await self.broadcast(msg)
+                last = msg
+            if msg["state"] == "linked":
+                return
+            await asyncio.sleep(2)
+
+    async def whatsapp_replies(self, interval: float = 30) -> None:
+        """Replies to messages JARVIS sent (the last 24 h, from the helper) drop in as cards."""
+        since = datetime.now(timezone.utc).isoformat()
+        last = await self.whatsapp_state()
+        while True:
+            await asyncio.sleep(interval)
+            now = await self.whatsapp_state()   # e.g. `whatsapp link` finished in a terminal
+            if now != last:
+                last = now
+                await self.broadcast(now)
+            c = await asyncio.to_thread(whatsapp.client, self.cfg.db_path.parent)
+            if c is None:
+                continue
+            for m in await asyncio.to_thread(c.replies, since):
+                since = max(since, m.get("ts", ""))   # the newest one shown: never show it twice
+                await self.broadcast({"type": "notify", "icon": "whatsapp",
+                                      "title": m.get("name") or m["from"],
+                                      "text": m["text"][:200]})
+
     async def tick(self, now: datetime) -> None:
         """Every 30 s: speak due reminders, and start the morning briefing once a day.
         These are the only things JARVIS does unasked (the user set them up)."""
@@ -177,14 +314,26 @@ class Hub:
             await self.start_turn(self.BRIEFING_PROMPT, typed=True)   # voice: idle → thinking
 
     async def clock(self) -> None:
-        start = clock_time.monotonic()
+        start = last_glance = clock_time.monotonic()
         while True:
             try:
                 if self.ready(clock_time.monotonic() - start):
                     await self.tick(datetime.now())
+                if clock_time.monotonic() - last_glance >= GLANCE_EVERY_S:
+                    last_glance = clock_time.monotonic()
+                    self.spawn(self.send_glance())
             except Exception as e:   # a bad row must not stop reminders for good
                 await self.broadcast({"type": "banner", "text": f"Scheduler error: {e}"})
             await asyncio.sleep(30)
+
+    async def watch_fullscreen(self) -> None:
+        """Tell the island when a game, video or presentation takes the screen."""
+        while True:
+            on = await asyncio.to_thread(fullscreen.state)
+            if on != self.fullscreen:
+                self.fullscreen = on
+                await self.broadcast({"type": "fullscreen", "on": on})
+            await asyncio.sleep(2)
 
     async def _stop_turn(self) -> None:
         for fut in self.pending.values():   # an open question counts as "no"
@@ -209,9 +358,9 @@ class Hub:
         args = (self.cfg, self.conn, text, brain.pick_route(text, self.route), self.broadcast)
         if self.voice:
             coro = self.turn_runner(*args, self.voice.speak, prepare=self.voice.prepare,
-                                    confirm=self.confirm)
+                                    confirm=self.confirm, typed=typed)
         else:
-            coro = self.turn_runner(*args, _no_speak, confirm=self.confirm)
+            coro = self.turn_runner(*args, _no_speak, confirm=self.confirm, typed=typed)
         self.turn = asyncio.create_task(coro)
 
     async def cancel(self) -> None:
@@ -304,9 +453,11 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         hub.loop = asyncio.get_running_loop()
-        clock = asyncio.create_task(hub.clock())
+        bg = [asyncio.create_task(hub.clock()), asyncio.create_task(hub.watch_fullscreen()),
+              asyncio.create_task(hub.whatsapp_replies())]
         yield
-        clock.cancel()
+        for t in bg:
+            t.cancel()
 
     app = FastAPI(lifespan=lifespan)
     app.state.hub = hub
@@ -320,13 +471,17 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
         if _tunnelled(request.headers) and request.url.path not in remote.PATHS:
             return JSONResponse({"detail": "the desk is local-only"}, status_code=403)
         response = await call_next(request)
-        if request.url.path == "/" or request.url.path.startswith("/ui/"):
+        if request.url.path in ("/", "/island") or request.url.path.startswith("/ui/"):
             response.headers["Cache-Control"] = "no-cache"   # a UI update shows on the next load
         return response
 
     @app.get("/")
     async def index():
         return FileResponse(UI / "index.html")
+
+    @app.get("/island")
+    async def island():
+        return FileResponse(UI / "island.html")
 
     app.mount("/ui", StaticFiles(directory=UI), name="ui")
 
@@ -345,6 +500,8 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
         await sock.send_json({"type": "actions", "actions": db.recent_actions(conn, 30)})
         await sock.send_json(hub.chats())
         await sock.send_json(hub.mic())
+        await sock.send_json(await hub.whatsapp_state())
+        await hub.send_island_data(sock)
         try:
             while True:
                 m = await sock.receive_json()
@@ -364,10 +521,27 @@ def create_app(cfg, conn, voice=None, turn_runner=brain.run_turn) -> FastAPI:
                     await hub.switch_chat(None)
                 elif m.get("type") == "open_chat" and isinstance(m.get("id"), int):
                     await hub.switch_chat(m["id"])
+                elif m.get("type") == "ptt":   # the island's mic button: same as Right Ctrl
+                    if hub.voice:
+                        hub.voice.event("hotkey_down" if m.get("down") else "hotkey_up")
                 elif m.get("type") == "mute":
                     await hub.set_muted(bool(m.get("on")))
+                elif m.get("type") == "whatsapp_link":
+                    if hub.linking is None or hub.linking.done():
+                        hub.linking = asyncio.create_task(hub.whatsapp_link())
                 elif m.get("type") == "screenshot":
                     await sock.send_json(await asyncio.to_thread(save_screenshot))
+                elif m.get("type") == "keep":
+                    hub.spawn(hub.keep(m))
+                elif m.get("type") == "open_item" and isinstance(m.get("id"), int):
+                    await hub.open_item(m.get("kind"), m["id"])
+                elif m.get("type") == "remove_vault" and isinstance(m.get("id"), int):
+                    hub.spawn(hub.desk_run("remove_from_vault", id=m["id"]))
+                elif m.get("type") == "full_view":
+                    if inspect.iscoroutinefunction(hub.open_full_view):
+                        await hub.open_full_view()
+                    else:   # a plain function (e.g. launching Edge) must not block the loop
+                        await asyncio.to_thread(hub.open_full_view)
                 elif m.get("type") == "upload":
                     await sock.send_json(save_upload(str(m.get("name", "")),
                                                      str(m.get("data", ""))))

@@ -90,7 +90,9 @@ def _walk(roots, exclude, skip):
     skip = [Path(s).resolve() for s in skip]
     for root in roots:
         for dirpath, dirnames, filenames in os.walk(root):
-            if any(Path(dirpath).resolve().is_relative_to(s) for s in skip):
+            here, top = Path(dirpath).resolve(), Path(root).resolve()
+            # a root inside a skipped folder (the vault, in the app dir) is still walked
+            if any(here.is_relative_to(s) and not top.is_relative_to(s) for s in skip):
                 dirnames[:] = []
                 continue
             # hidden folders hold tool data (caches, snapshots), not notes

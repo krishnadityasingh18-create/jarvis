@@ -123,3 +123,17 @@ def test_confirm_answer_transcribed_to_confirm_heard(vl):
     time.sleep(0.2)
     assert ("confirm_heard", {"text": "Yes.", "id": "q1"}) in vl.events
     assert not [e for e in vl.events if e[0] == "transcript"]
+
+
+def test_mic_level_emitted_every_fourth_frame_only_while_listening(vl):
+    vl.vad = type("V", (), {"predict": lambda self, x, frame_size=640: 1.0})()
+    vl.oww = type("O", (), {"predict": lambda self, x: {"hey_jarvis": 0.0}})()
+    loud = np.full(1280, 0.5, np.float32)
+    for _ in range(8):
+        vl._frame(loud)                      # idle: nothing to report
+    assert not [e for e in vl.events if e[0] == "mic_level"]
+    vl.event("wake")
+    for _ in range(8):
+        vl._frame(loud)
+    levels = [p["level"] for n, p in vl.events if n == "mic_level"]
+    assert len(levels) == 2 and all(0 < v <= 1 for v in levels)

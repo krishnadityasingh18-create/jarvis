@@ -18,6 +18,21 @@ def cfg(tmp_path):
     return c
 
 
+@pytest.fixture(autouse=True)
+def no_weather_network(monkeypatch):
+    """The island's glance asks for the weather; tests never reach the network."""
+    from jarvis.tools import briefing
+    monkeypatch.setattr(briefing, "weather_short", lambda cfg: ("31°", "Clear"))
+    monkeypatch.setattr("jarvis.artifacts._weather_cache", {})   # each test asks afresh
+
+
+@pytest.fixture(autouse=True)
+def not_fullscreen(monkeypatch):
+    """Whatever the dev is doing on this laptop must not leak `fullscreen` messages into tests."""
+    from jarvis import fullscreen
+    monkeypatch.setattr(fullscreen, "_query", lambda: 1)
+
+
 @pytest.fixture
 def conn(cfg):
     return db.connect(cfg.db_path)

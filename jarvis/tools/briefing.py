@@ -36,6 +36,13 @@ def weather(cfg) -> str:
             f"{d['precipitation_probability_max'][0]}% chance of rain")
 
 
+def weather_short(cfg) -> tuple[str, str]:
+    """For the island's glance: ("31°", "Light rain")."""
+    d = _weather_json(cfg)
+    return f"{round(d['temperature_2m_max'][0])}°", \
+        WEATHER.get(d["weather_code"][0], "mixed weather").capitalize()
+
+
 def _google(kind: str) -> str:
     """Filled in when Google is connected (jarvis.tools.google_tools)."""
     from jarvis.tools import google_tools
