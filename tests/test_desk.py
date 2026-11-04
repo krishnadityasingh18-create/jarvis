@@ -90,3 +90,15 @@ async def test_claude_progress_is_remembered(cfg, conn):
     h, _ = hub_with_sock(cfg, conn)
     await h.broadcast({"type": "claude_live", "step": "read", "file": "x"})
     assert h.claude_live["step"] == "read"
+
+
+async def test_winrt_calls_run_off_the_event_loop_thread():
+    # comtypes makes the main thread a single-threaded COM apartment; WinRT awaited there can hang
+    import threading
+
+    @desk._off_thread
+    async def where(x, y=0):
+        return threading.get_ident(), x + y
+
+    tid, total = await where(1, y=2)
+    assert tid != threading.get_ident() and total == 3

@@ -8,7 +8,7 @@
   --line: rgba(255,255,255,.08); --accent: #A374F5;
   --me: linear-gradient(135deg, #5b7cff 0%, #9a6bff 100%);
   /* a transparent frameless window can't blur the desktop behind it: deep tint instead */
-  --glass: rgba(20,20,26,.9);
+  --glass: rgba(20,20,26,.97);
   --spectrum: #4F8BFF, #B26BFF, #FF5EA8, #FF8A4C, #FFC46B, #FF5EA8, #B26BFF, #3FC8FF, #4F8BFF;
   --font: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   color-scheme: dark;

@@ -18,6 +18,15 @@ async def _session():
     return (await Manager.request_async()).get_current_session()
 
 
+def _off_thread(f):
+    """Run a WinRT coroutine on a worker thread with its own loop. Once comtypes (pycaw) has made
+    the main thread a single-threaded COM apartment, WinRT calls there can block it for good."""
+    async def run(*a, **kw):
+        return await asyncio.to_thread(asyncio.run, f(*a, **kw))
+    return run
+
+
+@_off_thread
 async def media(thumb: bool = False) -> dict | None:
     """The current song (title, artist, playing, app), or None when nothing is playing.
     thumb=True adds the cover as a data: URL (only asked for when the song changes)."""
@@ -46,6 +55,7 @@ async def _cover(ref) -> str:
     return f"data:image/{kind};base64," + base64.b64encode(data).decode()
 
 
+@_off_thread
 async def media_control(action: str) -> bool:
     """Play/pause, next or previous on whatever is playing. False if there's nothing."""
     s = await _session()
