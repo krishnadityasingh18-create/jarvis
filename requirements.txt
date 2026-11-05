@@ -27,3 +27,8 @@ google-api-python-client
 pyserial
 paho-mqtt
 pillow   # the UI's "Take a screenshot"
+pycaw   # the island volume HUD
+winrt-runtime   # the island music card (Windows media session)
+winrt-Windows.Media.Control
+winrt-Windows.Foundation
+winrt-Windows.Storage.Streams
