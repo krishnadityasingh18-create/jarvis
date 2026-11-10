@@ -74,6 +74,10 @@ app underneath.
 - **All at once:** while a song plays its cover spins in a round bubble on the
   island's left; a running focus timer counts down in purple in the middle.
   Changing the volume stretches the island into a big volume bar for a moment.
+- **Lyrics:** while a song plays, the line being sung sits in the pill (synced
+  lyrics from LRCLIB, free, no key), the current word lit up. Words are timed by
+  spreading the line's time over them, so it's close, not exact. A focus timer or
+  a reminder due soon takes the spot first.
 - **Questions** (WhatsApp sends, file edits, devices) grow the island into a
   card with Cancel and Send/Allow. Saying "yes" or "no" works too.
 - **Running jobs** (a Claude Code task, a WhatsApp send, a reminder due within

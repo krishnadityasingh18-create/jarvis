@@ -302,3 +302,16 @@ def test_whatsapp_bubble_and_send_button_keep_their_own_shape(island):
     island.wait_for_function("document.getElementById('bub').classList.contains('wa')")
     css = island.eval_on_selector("#bub", "e => { const s = getComputedStyle(e); return [s.paddingTop, s.marginTop, s.borderLeftWidth] }")
     assert css == ["0px", "0px", "0px"]
+
+
+def test_the_pill_shows_the_lyric_line_being_sung(island):
+    now = time.time()
+    island.push({"type": "lyrics", "title": "Song", "artist": "A",
+                 "lines": [[10, "first line"], [19, "second line"], [600, "much later"]]})
+    island.push({"type": "media", "title": "Song", "artist": "A", "playing": True, "start": now - 20, "thumb": ""})
+    island.wait_for_function("document.querySelector('#mid .tk.ly')?.textContent.includes('second line')")
+    # 1 s into a 1.5 s line of two words: "second" sung, "line" being sung; then both lit
+    island.wait_for_function("[...document.querySelectorAll('#mid .lw')].map(e => e.className).join() == 'lw on,lw now'")
+    island.wait_for_function("[...document.querySelectorAll('#mid .lw')].map(e => e.className).join() == 'lw on,lw on'")
+    island.push({"type": "media", "title": "Song", "artist": "A", "playing": False, "pos": 20})   # paused: gone
+    island.wait_for_function("!document.querySelector('#mid .tk.ly')")

@@ -60,5 +60,5 @@ wide 620 px panel:
   corner and also blurs into its background.
 - **Electron:** the window is 760 wide, to fit the panel.
 
-Still not built: lyrics in the pill (no free lyrics source fits) and "drag JARVIS onto
+Lyrics built 2026-11-11 (LRCLIB synced lines, word highlight estimated). Still not built: "drag JARVIS onto
 anything on screen" (needs screen capture plus a vision model).

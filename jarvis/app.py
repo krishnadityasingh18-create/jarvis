@@ -16,7 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from jarvis import artifacts, brain, db, desk, fullscreen, remote, tools, whatsapp
+from jarvis import artifacts, brain, db, desk, fullscreen, lyrics, remote, tools, whatsapp
 from jarvis.tools import outbound, vault
 from jarvis.tools.apps import _runs_code
 
@@ -59,6 +59,7 @@ class Hub:
         self.tasks: set[asyncio.Task] = set()          # island requests that may wait on a yes
         self.fullscreen = False
         self.media: dict = {"type": "media", "title": ""}   # the song playing, for new pages
+        self.lyrics: dict = {"type": "lyrics", "title": "", "lines": []}   # its synced lines
         self.claude_live: dict | None = None                 # the last Claude Code progress
         self.focus: dict = {"type": "focus", "until": 0, "minutes": 0}
         self.focus_task: asyncio.Task | None = None
@@ -139,6 +140,7 @@ class Hub:
         if self.claude_live:
             await sock.send_json(self.claude_live)
         await sock.send_json(self.media)
+        await sock.send_json(self.lyrics)
         await sock.send_json(self.focus)
         await sock.send_json(self.vault())
         await sock.send_json(await asyncio.to_thread(self.artifacts))
@@ -342,15 +344,25 @@ class Hub:
         while True:
             try:
                 m = await desk.media()
-                if m and (m["title"], m["artist"]) != (self.media.get("title"), self.media.get("artist")):
+                new = bool(m) and (m["title"], m["artist"]) != (self.media.get("title"), self.media.get("artist"))
+                if new:
                     m = await desk.media(thumb=True)
+                    self.spawn(self.send_lyrics(m))
                 msg = {"type": "media", **m, "thumb": m.get("thumb", self.media.get("thumb", ""))}                     if m else {"type": "media", "title": ""}
                 if msg != self.media:
                     self.media = msg
-                    await self.broadcast(msg)
+                    # the cover goes out with a new song only; play/pause/seek resend just the rest
+                    await self.broadcast(msg if new or not m else {k: v for k, v in msg.items() if k != "thumb"})
             except Exception:   # a player closing mid-read: try again next second
                 pass
             await asyncio.sleep(1)
+
+    async def send_lyrics(self, m: dict) -> None:
+        lines = await asyncio.to_thread(lyrics.fetch, m["title"], m["artist"], m.get("dur", 0))
+        if (m["title"], m["artist"]) != (self.media.get("title"), self.media.get("artist")):
+            return   # the song changed while we looked
+        self.lyrics = {"type": "lyrics", "title": m["title"], "artist": m["artist"], "lines": lines}
+        await self.broadcast(self.lyrics)
 
     async def media_control(self, action: str) -> None:
         if not await desk.media_control(action):

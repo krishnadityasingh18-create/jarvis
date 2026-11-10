@@ -272,6 +272,13 @@ body.st-off .head .s::before { background: #8e8e93; }
 #mbub.play .art { animation: disc 8s linear infinite; }
 @keyframes disc { to { transform: rotate(360deg); } }
 .tk.fo { color: #C9A6FF; } .tk.fo svg { opacity: 1; }
+/* lyrics: one line, cut with an ellipsis so the pill never outgrows the screen top */
+.tk.ly { color: #FFD9B8; } .tk.ly svg { opacity: .9; }
+.tk.ly .t { max-width: 300px; overflow: hidden; white-space: nowrap; scroll-behavior: smooth; }
+/* karaoke: words to come are dim, sung ones lit, the one being sung glows */
+.tk.ly .lw { color: rgba(255,217,184,.45); transition: color .15s, text-shadow .15s; }
+.tk.ly .lw.on { color: #FFD9B8; }
+.tk.ly .lw.now { color: #fff; text-shadow: 0 0 8px rgba(255,190,140,.9); }
 .vol { display: inline-flex; align-items: center; gap: 10px; min-width: 230px; animation: wordIn .3s cubic-bezier(.2,.8,.2,1) both; }
 .vol svg { width: 16px; height: 16px; flex: none; }
 .vol i { position: relative; flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,.16); overflow: hidden; }

@@ -38,9 +38,23 @@ async def media(thumb: bool = False) -> dict | None:
         return None
     out = {"title": p.title, "artist": p.artist, "app": s.source_app_user_model_id,
            "playing": int(s.get_playback_info().playback_status) == PLAYING}
+    out.update(_timing(s.get_timeline_properties(), out["playing"]))
     if thumb:
         out["thumb"] = await _cover(p.thumbnail)
     return out
+
+
+def _timing(t, playing: bool) -> dict:
+    """Where the song is, for synced lyrics. Playing: 'start' = the epoch second it would have
+    begun (steady while it plays, so the island extrapolates and we don't resend every second;
+    halves absorb the player's jitter). Paused: 'pos' in seconds. Nothing if the app has no timeline."""
+    dur = t.end_time.total_seconds()
+    if dur <= 0:
+        return {}
+    pos = t.position.total_seconds()
+    if playing:
+        return {"dur": round(dur), "start": round((t.last_updated_time.timestamp() - pos) * 2) / 2}
+    return {"dur": round(dur), "pos": round(pos, 1)}
 
 
 async def _cover(ref) -> str:

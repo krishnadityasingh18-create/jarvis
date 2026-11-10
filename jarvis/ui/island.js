@@ -166,6 +166,7 @@ export const ICON = {
   mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/></svg>',
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/></svg>',
+  note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
 };
 export let glance = [];
@@ -180,12 +181,50 @@ function ticker(now) {
   const f = focusLeft();
   if (f > 0) return midLabel(`<span class="tk fo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><circle cx="12" cy="12" r="8"/></svg>${mmss(f)}</span>`, 26);
   const due = soon();   // a reminder in the next 10 minutes stays put, counting down
+  const ly = due ? null : lyricNow();
+  if (ly) {
+    midLabel(`<span class="tk ly">${ICON.note}<span class="t">${ly.words.map(w => `<span class="lw">${esc(w)}</span>`).join(" ") || "♪"}</span></span>`, 26);
+    return karaoke(ly);
+  }
   const g = due || glance[ti % glance.length];
   if (!g) return midLabel("");   // nothing to show yet: just the orb and the mic
   const d = due ? "in " + mmss(left(due)) : g.detail;
   midLabel(`<span class="tk">${ICON[g.icon] || ICON.check}${esc(g.value)} <span class="d">${esc(d || "")}</span></span>`, 26);
 }
 setInterval(ticker, 4500);
+
+// ---------- lyrics: the line being sung sits in the pill while the song plays
+let lyr = { title: "", lines: [] }, lyLast = null;
+// The line being sung and how far into it we are. LRCLIB times lines, not words, so the words
+// share the line's time by length.
+// ponytail: guessed word timing (≈0.5 s a word, capped by the next line); use enhanced-LRC word tags if a source has them
+export function lyricNow() {
+  const m = desk.media;
+  if (!m.playing || !m.start || lyr.title !== m.title || !lyr.lines.length) return null;
+  const t = Date.now() / 1000 - m.start;
+  let i = -1;
+  while (i + 1 < lyr.lines.length && lyr.lines[i + 1][0] <= t) i++;   // ponytail: linear scan, songs are ~100 lines
+  if (i < 0) return null;   // before the first line: the usual ticker
+  const [at, text] = lyr.lines[i], words = text.split(/\s+/).filter(Boolean);
+  const next = lyr.lines[i + 1]?.[0] ?? at + 30, dur = Math.min(next - at, .5 * words.length + .5);
+  return { i, words, p: Math.min(1, (t - at) / dur) };
+}
+// sung words lit, the current one brightest; a long line slides so it stays in view
+function karaoke(ly) {
+  const box = $("#mid .tk.ly .t");
+  if (!box) return;
+  const spans = [...box.querySelectorAll(".lw")], total = ly.words.join("").length;
+  let k = -1, c = 0;
+  while (k + 1 < ly.words.length && c < ly.p * total) c += ly.words[++k].length;
+  spans.forEach((s, j) => { s.classList.toggle("on", j < k || (j === k && ly.p >= 1)); s.classList.toggle("now", j === k && ly.p < 1); });
+  const cur = spans[k];
+  if (cur) box.scrollLeft = Math.max(0, cur.offsetLeft + cur.offsetWidth - box.clientWidth + 24);
+}
+setInterval(() => {
+  const ly = lyricNow();
+  if ((ly?.i ?? null) !== lyLast) { lyLast = ly?.i ?? null; ticker(true); }
+  else if (ly) karaoke(ly);
+}, 100);
 
 // ---------- state: colour, motion and words
 const LOOK = { listening: "hue-rotate(-40deg) saturate(1.35) brightness(1.15)", thinking: "hue-rotate(70deg) saturate(1.5)" };
@@ -354,10 +393,12 @@ export const on = {
     bubble();
   },
   media(m) {
-    desk.media = m;
-    $("#mbub .art").style.backgroundImage = m.thumb ? `url("${m.thumb}")` : "";
+    // play/pause/seek come without the cover: keep the one we have
+    desk.media = "thumb" in m || m.title !== desk.media.title ? m : { ...m, thumb: desk.media.thumb };
+    $("#mbub .art").style.backgroundImage = desk.media.thumb ? `url("${desk.media.thumb}")` : "";
     bubble();
   },
+  lyrics(m) { lyr = { title: m.title || "", lines: m.lines || [] }; lyLast = null; },
   focus(m) { desk.focus = m; if (ui.mode === "idle" && ui.state === "idle") ticker(true); },
   volume,
   action(m) {
