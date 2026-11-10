@@ -166,14 +166,28 @@ def hook_hotkey(voice, key: str) -> None:
         # The Copilot key sends Win+Shift+F23 (repeating while held). Eat F23 so Copilot
         # never opens; tap an unassigned VK so the lone Win release doesn't open Start.
         import ctypes
-        def eat(handler):
+        u32 = ctypes.windll.user32
+
+        def close_focus_windows():
+            # Explorer opens an invisible full-screen topmost "CopilotkeyFocusWindow" on
+            # each press and closes it on the F23 release we eat; left open, they swallow
+            # every click and scroll. Close them ourselves.
+            # ponytail: matches Explorer's window title; recheck if a Windows update renames it
+            h = None
+            while h := u32.FindWindowExW(None, h, None, "CopilotkeyFocusWindow"):
+                u32.PostMessageW(h, 0x10, 0, 0)   # WM_CLOSE
+
+        def eat(handler, release=False):
             def cb(e):
-                ctypes.windll.user32.keybd_event(0xE8, 0, 2, 0)
+                u32.keybd_event(0xE8, 0, 2, 0)
                 handler(e)
+                if release:
+                    close_focus_windows()
                 return False   # falsy = blocked; a truthy return lets F23 reach Copilot
             return cb
+        close_focus_windows()   # any left over from before this fix
         keyboard.on_press_key("f23", eat(down), suppress=True)
-        keyboard.on_release_key("f23", eat(up), suppress=True)
+        keyboard.on_release_key("f23", eat(up, release=True), suppress=True)
         return
     keyboard.on_press_key(key, down)
     keyboard.on_release_key(key, up)
