@@ -45,7 +45,7 @@ def island(cfg, conn, monkeypatch):
     warnings = []
     with pw.sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 560, "height": 660})
+        page = browser.new_page(viewport={"width": 760, "height": 660})
         page.on("console", lambda m: m.type == "error" and errors.append(m.text))
         page.on("console", lambda m: m.type == "warning" and m.text.startswith("island: couldn't show")
                 and warnings.append(m.text))
@@ -204,7 +204,12 @@ def test_the_page_reports_the_island_rect_to_electron(island):
     island.wait_for_selector("#shell.open #panel.in")
     island.wait_for_timeout(900)
     r = island.evaluate("() => window.__rects[window.__rects.length - 1]")
-    assert r["w"] == 440 and r["h"] == 600   # follows the layout when it opens
+    assert r["w"] == 620 and r["h"] == 300   # follows the layout when it opens: wide and short on Home
+    island.click('#seg button[data-v="chat"]')
+    island.wait_for_timeout(900)
+    r = island.evaluate("() => window.__rects[window.__rects.length - 1]")
+    assert r["h"] == 540 and island.is_visible("#text")   # Chat is taller, with the input
+    assert island.evaluate("() => document.querySelector('#panel').offsetHeight") == 540
 
 
 @pytest.mark.parametrize("status,result,failed", [
@@ -221,3 +226,71 @@ def test_link_row_says_how_to_install_a_missing_helper(island):
     island.push({"type": "whatsapp", "state": "missing", "qr": ""})
     island.wait_for_function("() => document.querySelector('#walink').textContent.includes('npm install --prefix desktop/wa')")
     assert island.locator("#walink button").count() == 0
+
+
+# ---------- island v2: Home cards, the song bubble, focus in the pill, volume, quick actions
+def _open(island):
+    island.click("#shell")
+    island.wait_for_selector("#panel.in")
+
+
+def test_home_is_the_first_tab_and_shows_claude_progress(island):
+    _open(island)
+    assert island.is_visible("#v-home") and island.get_attribute('#seg button[data-v="home"]', "aria-selected") == "true"
+    island.push({"type": "claude_live", "project": "webshop", "task": "x", "started": time.time() - 13, "step": "edit",
+                 "file": "checkout.ts", "old": "const total = 0", "new": "const total = sum(items)"})
+    island.wait_for_selector("#hc-claude.on")
+    assert island.inner_text("#cc-sub") == "Editing · 2 of 4" and island.inner_text("#cl-proj") == "webshop"
+    assert island.inner_text("#cl-new") == "+ const total = sum(items)"
+    assert island.get_attribute("#cl-steps i:nth-child(2)", "class") == "now"
+    island.push({"type": "claude_live", "project": "webshop", "task": "x", "started": time.time() - 40, "step": "done", "file": ""})
+    island.wait_for_function("() => !document.querySelector('#hc-claude').classList.contains('on')")
+    assert island.inner_text("#cc-sub") == "Done"
+
+
+def test_the_code_tab_shows_the_task_big_and_warms_the_panel(island):
+    _open(island)
+    island.click("#seg button[data-v=code]")
+    assert island.is_visible("#cc-none") and not island.is_visible("#cc-live")
+    island.push({"type": "claude_live", "project": "webshop", "task": "x", "started": time.time() - 14, "step": "edit",
+                 "file": "checkout.ts", "old": "const total = 0", "new": "const total = sum(items)"})
+    island.wait_for_selector("#shell.warm")
+    assert island.inner_text("#cl-time").startswith("0:1") and island.is_visible("#cl-file")
+    island.click("#seg button[data-v=home]")
+    assert "warm" not in island.get_attribute("#shell", "class")   # only while you watch it
+    island.click("#hc-claude")
+    assert island.get_attribute("#seg button[data-v=code]", "aria-selected") == "true"
+
+
+def test_a_playing_song_splits_off_a_bubble_and_fills_the_card(island):
+    island.push({"type": "media", "title": "Golden Hour", "artist": "Nova Lane", "app": "Spotify", "playing": True, "thumb": ""})
+    island.wait_for_function("() => +getComputedStyle(document.querySelector('#mbub')).opacity === 1")
+    assert "play" in island.get_attribute("#mbub", "class")
+    _open(island)
+    assert island.inner_text("#mu-t") == "Golden Hour" and island.inner_text("#mu-a") == "Nova Lane"
+    island.push({"type": "media", "title": ""})
+    island.wait_for_function("() => document.querySelector('#mu-t').textContent === 'Nothing playing'")
+
+
+def test_focus_counts_down_in_the_pill_and_the_card(island):
+    island.push({"type": "focus", "minutes": 25, "until": time.time() + 24 * 60 + 54})
+    island.wait_for_selector("#mid .tk.fo")
+    assert "24:5" in island.inner_text("#mid")
+    _open(island)
+    assert island.inner_text("#fo-time").startswith("24:5") and "on" in island.get_attribute("#hc-focus", "class")
+
+
+def test_volume_stretches_the_island_into_a_bar(island):
+    island.push({"type": "volume", "level": .64, "muted": False})
+    island.wait_for_selector("#mid .vol")
+    assert island.inner_text("#mid .vol .d") == "64"
+    island.wait_for_function("() => !document.querySelector('#mid .vol')", timeout=4000)
+
+
+def test_quick_action_sends_the_clipboard_and_shows_chat(island):
+    island.evaluate("() => { window.island.clipboard = async () => 'teh quick brown fox' }")
+    _open(island)
+    island.click('#qa button:has-text("Check spelling")')
+    island.wait_for_selector("#thread .b.me")
+    assert "teh quick brown fox" in island.inner_text("#thread .b.me:last-child")
+    assert island.get_attribute('#seg button[data-v="chat"]', "aria-selected") == "true"

@@ -44,3 +44,16 @@ def pytest_pyfunc_call(pyfuncitem):
         args = {k: pyfuncitem.funcargs[k] for k in pyfuncitem._fixtureinfo.argnames}
         asyncio.run(pyfuncitem.obj(**args))
         return True
+
+
+@pytest.fixture(autouse=True)
+def quiet_desk(monkeypatch):
+    """Tests never read this laptop's song or volume (the app's lifespan polls both), and
+    see the WhatsApp helper as installed whether or not `npm install` ran on this clone."""
+    from jarvis import desk, whatsapp
+    monkeypatch.setattr(whatsapp, "installed", lambda: True)
+
+    async def nothing(thumb=False):
+        return None
+    monkeypatch.setattr(desk, "media", nothing)
+    monkeypatch.setattr(desk, "watch_volume", lambda *a, **k: None)

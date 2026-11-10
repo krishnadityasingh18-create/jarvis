@@ -1,3 +1,4 @@
+import asyncio
 import json
 import subprocess
 import sys
@@ -15,7 +16,13 @@ open("hello.txt", "w").write("hi\n")
 if os.environ.get("FAKE_COMMITS") == "1":
     subprocess.run(["git", "add", "-A"], check=True)
     subprocess.run(["git", "commit", "-qm", "Add hello"], check=True)
-print(json.dumps({"result": "Added hello.txt with a greeting.", "is_error": False}))
+def ev(name, **inp):
+    print(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}}))
+ev("Read", file_path="src/a.txt")
+ev("Edit", file_path="src/hello.txt", old_string="const total = 0\n", new_string="const total = sum(items)\n")
+ev("Bash", command="python -m pytest -q")
+print("not json")
+print(json.dumps({"type": "result", "result": "Added hello.txt with a greeting.", "is_error": False}))
 '''
 
 
@@ -130,3 +137,19 @@ async def test_existing_non_repo_folder_with_a_projects_name_uses_the_project(cf
     stray.mkdir(parents=True)
     r = await run(make_ctx(cfg, conn), call("ask_claude", task="add hello", project=str(stray)))
     assert (repo / "hello.txt").exists() and not (stray / "hello.txt").exists(), r
+
+
+async def test_streams_live_progress_to_the_island(cfg, conn, repo):
+    ctx = make_ctx(cfg, conn)
+    await run(ctx, call("ask_claude", task="add a hello file", project=str(repo)))
+    await asyncio.sleep(0)   # progress arrives via call_soon_threadsafe
+    live = [m for m in ctx.emitted if m.get("type") == "claude_live"]
+    assert [m["step"] for m in live] == ["start", "read", "edit", "test", "done"]
+    edit = live[2]
+    assert edit["file"] == "hello.txt" and edit["old"] == "const total = 0"         and edit["new"] == "const total = sum(items)" and edit["project"] == "proj"
+
+
+def test_progress_ignores_other_events():
+    assert claude.progress({"type": "user", "message": {}}) is None
+    assert claude.progress({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]}}) is None
