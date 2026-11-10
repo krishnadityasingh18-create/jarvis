@@ -48,7 +48,7 @@ speed = 0.9
 barge_in = "wake"        # "wake" (safe on speakers) or "voice" (headphones only)
 wake_threshold = 0.5
 end_silence_ms = 700
-ptt_key = "right ctrl"
+ptt_key = "copilot"           # Copilot key (Win+Shift+F23); or e.g. "right ctrl"
 whisper_model = "large-v3-turbo"
 
 [data]

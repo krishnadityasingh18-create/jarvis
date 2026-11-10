@@ -1,6 +1,6 @@
 # JARVIS
 
-A local voice and text assistant. Say "Hey Jarvis", hold **Right Ctrl**, or type.
+A local voice and text assistant. Say "Hey Jarvis", hold the **Copilot key** (`ptt_key` in config.toml), or type.
 It answers in a short spoken line (the Kokoro "Lewis" voice) and puts longer
 detail on screen. Everything runs on this laptop except the LLM calls to Groq
 and Gemini (both free tiers).
@@ -136,7 +136,7 @@ If the helper isn't installed, that row says so: run `npm install --prefix deskt
   transcript, **Details** holds longer answers, tables and links, **History**
   lists past chats and starts a **New chat**, and **Neural** lights up the
   parts of JARVIS in use. **Show details** under a reply opens it too.
-- **Barge-in:** on speakers, say "Hey Jarvis" or press Right Ctrl while it
+- **Barge-in:** on speakers, say "Hey Jarvis" or press the Copilot key while it
   talks. If you wear headphones, set `barge_in = "voice"` in `config.toml`
   to interrupt just by speaking.
 - **Routes:** `fast` (Groq) is the default. Start a request with "think
@@ -151,9 +151,9 @@ If the helper isn't installed, that row says so: run `npm install --prefix deskt
    spoken greeting addressed to "sir".
 3. Say "Hey Jarvis, explain the Nyquist sampling theorem." It speaks one or
    two sentences; **Show details** opens the full explanation in the side panel.
-4. While it's speaking, say "Hey Jarvis" (or press Right Ctrl). It stops
+4. While it's speaking, say "Hey Jarvis" (or press the Copilot key). It stops
    almost at once and listens.
-5. Hold Right Ctrl, ask "what did I just ask you about?", then release. It
+5. Hold the Copilot key, ask "what did I just ask you about?", then release. It
    answers from the conversation history.
 6. Type "think carefully: compare BJT and MOSFET as switches". It uses the
    reasoning route, shown in the status line.
