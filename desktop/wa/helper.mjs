@@ -34,16 +34,25 @@ export function createServer({ sock, token, ackMs = 15000 }) {
     if (name) contacts.set(c.id, { name, jid: c.id, number: person(c.id) });
   };
 
+  const markAcked = (id) => {
+    if (acked.size > 500) acked.clear();
+    acked.add(id);
+    waiting.get(id)?.();
+  };
+
   function attach(s) {
     cur = s;
     s.ev.on("contacts.upsert", (l) => l.forEach(upsert));
     s.ev.on("contacts.update", (l) => l.forEach(upsert));
+    // Baileys 6.7 never turns the server's <ack> into a SERVER_ACK status (it only reports bad
+    // acks), so messages.update arrives only with the recipient's delivery receipt: none while
+    // their phone sleeps. Listen for the server's ack stanza itself.
+    s.ws?.on?.("CB:ack,class:message", (node) => {
+      if (node?.attrs?.id && !node.attrs.error) markAcked(node.attrs.id);
+    });
     s.ev.on("messages.update", (list) => {
       for (const { key, update } of list ?? []) {
-        if (!key?.fromMe || !key.id || !(update?.status >= SERVER_ACK)) continue;
-        if (acked.size > 500) acked.clear();
-        acked.add(key.id);
-        waiting.get(key.id)?.();
+        if (key?.fromMe && key.id && update?.status >= SERVER_ACK) markAcked(key.id);
       }
     });
     s.ev.on("connection.update", (u) => {

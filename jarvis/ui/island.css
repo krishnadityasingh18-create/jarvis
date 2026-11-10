@@ -207,9 +207,9 @@ body.st-off .head .s::before { background: #8e8e93; }
 .md pre { overflow-x: auto; background: rgba(0,0,0,.3); padding: 8px; border-radius: 8px; }
 .md pre code { background: none; padding: 0; }
 .md table { border-collapse: collapse; font-size: 12px; } .md td, .md th { border: 1px solid var(--line); padding: 3px 6px; }
-.wa { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: rgba(37,211,102,.1); border-left: 3px solid #25D366; font-size: 12.5px; }
-.wa .who { font-size: 11px; color: #25D366; font-weight: 600; }
-.wa.failed { background: rgba(255,255,255,.05); border-left-color: #8e8e93; } .wa.failed .who { color: var(--dim); }
+.wamsg { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: rgba(37,211,102,.1); border-left: 3px solid #25D366; font-size: 12.5px; }
+.wamsg .who { font-size: 11px; color: #25D366; font-weight: 600; }
+.wamsg.failed { background: rgba(255,255,255,.05); border-left-color: #8e8e93; } .wamsg.failed .who { color: var(--dim); }
 
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .tile { border-radius: 16px; background: rgba(255,255,255,.05); border: 1px solid var(--line); overflow: hidden; cursor: pointer;

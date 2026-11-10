@@ -97,7 +97,7 @@ let current = null, heardByVoice = false, chatsMsg = null;
 const toBottom = () => { view.scrollTop = view.scrollHeight; };   // live turns always follow
 function waCard(args, result) {
   const sent = /^WhatsApp sent to /.test(String(result || "").trim());   // the tool's success line; anything else (error, declined, none) was not sent
-  const c = el("div", "wa" + (sent ? "" : " failed"));
+  const c = el("div", "wamsg" + (sent ? "" : " failed"));
   c.append(el("div", "who", `To ${args.to || "?"}${sent ? "" : " · not sent"}`), args.text || "");
   return c;
 }

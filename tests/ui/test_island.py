@@ -172,7 +172,7 @@ def test_history_marks_a_send_sent_only_for_the_success_line(island):
         {"role": "assistant", "content": "c", "screen": "", "ts": ts, "route": "fast", "actions": _wa("I could not say it was sent")},
         {"role": "assistant", "content": "d", "screen": "", "ts": ts, "route": "fast", "actions": _wa("The user declined.")},
     ])
-    assert island.eval_on_selector_all("#thread .wa", "es => es.map(e => e.classList.contains('failed'))")         == [True, False, True, True]
+    assert island.eval_on_selector_all("#thread .wamsg", "es => es.map(e => e.classList.contains('failed'))")         == [True, False, True, True]
 
 
 def test_history_shows_the_mic_for_voice_user_messages(island):
@@ -218,8 +218,8 @@ def test_the_page_reports_the_island_rect_to_electron(island):
 def test_live_send_card_is_sent_only_for_the_success_line(island, status, result, failed):
     island.push({"type": "action", "tool": "send_whatsapp", "args": {"to": "Rahul", "text": "late"},
                  "status": status, "result": result})
-    island.wait_for_selector("#thread .wa", state="attached")
-    assert island.eval_on_selector("#thread .wa", "e => e.classList.contains('failed')") is failed
+    island.wait_for_selector("#thread .wamsg", state="attached")
+    assert island.eval_on_selector("#thread .wamsg", "e => e.classList.contains('failed')") is failed
 
 
 def test_link_row_says_how_to_install_a_missing_helper(island):
@@ -294,3 +294,11 @@ def test_quick_action_sends_the_clipboard_and_shows_chat(island):
     island.wait_for_selector("#thread .b.me")
     assert "teh quick brown fox" in island.inner_text("#thread .b.me:last-child")
     assert island.get_attribute('#seg button[data-v="chat"]', "aria-selected") == "true"
+
+
+def test_whatsapp_bubble_and_send_button_keep_their_own_shape(island):
+    # the chat panel's WhatsApp card once used a bare .wa class, which also styled these two
+    island.push({"type": "tool_start", "name": "send_whatsapp"})
+    island.wait_for_function("document.getElementById('bub').classList.contains('wa')")
+    css = island.eval_on_selector("#bub", "e => { const s = getComputedStyle(e); return [s.paddingTop, s.marginTop, s.borderLeftWidth] }")
+    assert css == ["0px", "0px", "0px"]

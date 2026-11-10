@@ -121,6 +121,18 @@ test("/send without a server ack is a failure, and not a reply target", async ()
   api.close();
 });
 
+test("the server's ack stanza confirms a send with no delivery receipt (phone asleep)", async () => {
+  const sock = fakeSock(async () => ({ key: { id: "SLEEPY" } }), { noAck: true });
+  sock.ws = new EventEmitter();
+  const { api, post } = await start(sock, { ackMs: 2000 });
+  sock.ev.emit("connection.update", { connection: "open" });
+  const sending = post("/send", { to: "+919000000001", text: "hi" });
+  setTimeout(() => sock.ws.emit("CB:ack,class:message", { attrs: { id: "OTHER", error: "479" } }), 5);
+  setTimeout(() => sock.ws.emit("CB:ack,class:message", { attrs: { id: "SLEEPY", class: "message" } }), 20);
+  assert.deepEqual(await sending, { ok: true, id: "SLEEPY" });
+  api.close();
+});
+
 test("a failing QR render doesn't break /status", async () => {
   const sock = fakeSock(async () => ({}));
   const { api, get } = await start(sock);
