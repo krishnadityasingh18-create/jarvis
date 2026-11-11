@@ -194,6 +194,10 @@ def hook_hotkey(voice, key: str) -> None:
 
 
 def main() -> None:
+    if sys.stdout is None:   # pythonw (startup shortcut): no console; uvicorn crashes on None
+        log = Path(__file__).resolve().parent.parent / "data" / "jarvis.log"
+        log.parent.mkdir(exist_ok=True)
+        sys.stdout = sys.stderr = open(log, "w", encoding="utf-8", buffering=1)
     if sys.argv[1:2] == ["remote"]:
         return remote_cli(sys.argv[2:])
     if sys.argv[1:2] == ["accounts"]:
