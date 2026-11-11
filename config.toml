@@ -44,7 +44,7 @@ monthly_inr = 300
 
 [voice]
 voice = "bm_lewis"
-speed = 0.9
+speed = 1.125
 barge_in = "wake"        # "wake" (safe on speakers) or "voice" (headphones only)
 wake_threshold = 0.5
 end_silence_ms = 700
