@@ -54,6 +54,7 @@ class Config:
     longitude: float = 80.04
     remote: dict = field(default_factory=dict)   # [remote]: numbers, Vapi ids, n8n webhook
     devices: list = field(default_factory=list)  # [[devices]]: hardware, as data
+    mic_gain: float = 1.0       # mic boost for soft speech (wake word, VAD and Whisper)
     app_dir: Path = Path(__file__).resolve().parents[1]   # the JARVIS folder: never written to
 
 
@@ -95,6 +96,7 @@ def load_config(path: Path = Path("config.toml")) -> Config:
         voice=v["voice"],
         voice_speed=v["speed"],
         whisper_model=v["whisper_model"],
+        mic_gain=v.get("mic_gain", 1.0),
         db_path=Path(t["data"]["db_path"]).resolve(),   # stored file paths must not depend on the cwd
         agents={n: Agent(name=n, **{**a, "prompt": a["prompt"].strip()})
                 for n, a in t["agents"].items()},

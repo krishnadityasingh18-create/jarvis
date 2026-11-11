@@ -201,7 +201,8 @@ class VoiceLoop:
     def _frame(self, f32: np.ndarray) -> None:
         if self.muted:
             return
-        pcm = (np.clip(f32, -1, 1) * 32767).astype(np.int16)
+        f32 = np.clip(f32 * self.cfg.mic_gain, -1, 1)   # boost soft speech for wake/VAD/Whisper
+        pcm = (f32 * 32767).astype(np.int16)
         state = self.fsm.state
         if state in (State.IDLE, State.THINKING, State.SPEAKING):
             if max(self.oww.predict(pcm).values()) > self.cfg.wake_threshold:
